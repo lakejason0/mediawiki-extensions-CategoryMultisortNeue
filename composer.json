@@ -1,0 +1,47 @@
+{
+	"name": "lakeus/category-multisort-neue",
+	"description": "Lets readers view one MediaWiki category page under several different collations while the wiki keeps a single $wgCategoryCollation.",
+	"type": "mediawiki-extension",
+	"keywords": [
+		"mediawiki",
+		"category",
+		"collation",
+		"sorting",
+		"chinese",
+		"pinyin",
+		"zhuyin",
+		"stroke"
+	],
+	"license": "GPL-2.0-or-later",
+	"homepage": "https://github.com/Lakeus/CategoryMultisortNeue",
+	"support": {
+		"issues": "https://github.com/Lakeus/CategoryMultisortNeue/issues"
+	},
+	"require": {
+		"php": ">=8.3",
+		"composer/installers": "^2.0"
+	},
+	"require-dev": {
+		"mediawiki/mediawiki-codesniffer": ">=43.0.0",
+		"mediawiki/minus-x": ">=1.1.1",
+		"php-parallel-lint/php-console-highlighter": ">=1.0.0",
+		"php-parallel-lint/php-parallel-lint": ">=1.3.2"
+	},
+	"scripts": {
+		"test": [
+			"parallel-lint . --exclude vendor --exclude node_modules",
+			"minus-x check .",
+			"phpcs -p -s"
+		],
+		"fix": [
+			"minus-x fix .",
+			"phpcbf"
+		]
+	},
+	"config": {
+		"allow-plugins": {
+			"composer/installers": true,
+			"dealerdirect/phpcodesniffer-composer-installer": true
+		}
+	}
+}

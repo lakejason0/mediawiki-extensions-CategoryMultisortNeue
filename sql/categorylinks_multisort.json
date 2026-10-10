@@ -1,0 +1,46 @@
+[
+	{
+		"name": "categorylinks_multisort",
+		"comment": "Per-collation sort keys for category members, maintained by the CategoryMultisortNeue extension. Rows are keyed on (cms_from, cms_target_id) exactly like the categorylinks row they mirror, so no page or linktarget identity is duplicated here.",
+		"columns": [
+			{
+				"name": "cms_from",
+				"comment": "page_id of the member page; mirrors categorylinks.cl_from",
+				"type": "integer",
+				"options": { "unsigned": true, "notnull": true }
+			},
+			{
+				"name": "cms_target_id",
+				"comment": "linktarget.lt_id of the category; mirrors categorylinks.cl_target_id",
+				"type": "bigint",
+				"options": { "unsigned": true, "notnull": true }
+			},
+			{
+				"name": "cms_mode",
+				"comment": "Sort mode identifier, a key of $wgCategoryMultisortNeueModes",
+				"type": "string",
+				"options": { "notnull": true, "length": 32 }
+			},
+			{
+				"name": "cms_sortkey",
+				"comment": "Binary sort key produced by the mode's collation. Truncated to 230 bytes, the same limit maintenance/updateCollation.php applies.",
+				"type": "blob",
+				"options": { "notnull": true }
+			}
+		],
+		"indexes": [
+			{
+				"name": "cms_target_mode_sortkey",
+				"comment": "Serves the category page query: WHERE cms_target_id = ? AND cms_mode = ? ORDER BY cms_sortkey",
+				"columns": [ "cms_target_id", "cms_mode", "cms_sortkey", "cms_from" ],
+				"unique": false
+			},
+			{
+				"name": "cms_mode",
+				"columns": [ "cms_mode" ],
+				"unique": false
+			}
+		],
+		"pk": [ "cms_from", "cms_target_id", "cms_mode" ]
+	}
+]

@@ -1,0 +1,28 @@
+{
+	"@metadata": {
+		"authors": [
+			"Lakeus"
+		]
+	},
+	"categorymultisortneue-desc": "讓讀者用多種排序方式檢視同一個分類頁面（例如中文的拼音、注音、筆畫），而站點仍然只設定一個 <code>$wgCategoryCollation</code>。",
+	"categorymultisortneue": "分類排序方式",
+	"categorymultisortneue-link-aria": "按$1排序",
+	"categorymultisortneue-mode-default": "站點預設",
+	"categorymultisortneue-mode-default-desc": "站點所設定的 $wgCategoryCollation。",
+	"categorymultisortneue-mode-pinyin": "拼音",
+	"categorymultisortneue-mode-pinyin-desc": "按漢語拼音 A 到 Z 排序。",
+	"categorymultisortneue-mode-zhuyin": "注音",
+	"categorymultisortneue-mode-zhuyin-desc": "按注音符號順序排序。",
+	"categorymultisortneue-mode-stroke": "筆畫",
+	"categorymultisortneue-mode-stroke-desc": "按總筆畫數排序。",
+	"categorymultisortneue-pref": "分類頁面的排序方式",
+	"categorymultisortneue-pref-help": "你希望分類頁面預設使用哪種排序方式。你隨時可以用分類頁上的選擇器為單一分類臨時改用其他方式。",
+	"categorymultisortneue-pref-default": "站點預設",
+	"categorymultisortneue-unavailable": "本站不支援排序方式「$1」。",
+	"categorymultisortneue-magic-missing-mode": "CategoryMultisortNeue：沒有指定排序方式。可用的有：$1。",
+	"categorymultisortneue-magic-unknown-mode": "CategoryMultisortNeue：「$1」不是已知的排序方式。已知的有：$2。",
+	"categorymultisortneue-magic-missing-arg": "CategoryMultisortNeue：$1 需要一個排序鍵參數。",
+	"categorymultisortneue-magic-invalid-category": "CategoryMultisortNeue：「$1」不是分類名。",
+	"categorymultisortneue-summary": "本分類可以按多種方式排序。用選擇器即可切換順序，翻頁連結也會保持你選的順序。",
+	"categorymultisortneue-unavailable-notice": "排序方式「$1」不可用，改為顯示站點預設順序。"
+}

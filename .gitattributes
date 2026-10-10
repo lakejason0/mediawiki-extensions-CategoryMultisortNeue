@@ -1,0 +1,20 @@
+# Normalise line endings in the repository, so a Windows checkout and a Linux
+# checkout produce the same bytes.  Everything here is text except the binary
+# assets that may be added later.
+* text=auto eol=lf
+
+*.php   text
+*.json  text
+*.js    text
+*.css   text
+*.md    text
+*.sql   text
+
+# Keep the licence text and test fixtures byte-exact.
+COPYING text eol=lf
+
+# Binary assets
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.svg   text

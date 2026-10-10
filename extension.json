@@ -1,0 +1,86 @@
+{
+	"name": "CategoryMultisortNeue",
+	"type": "other",
+	"author": [
+		"Lakeus"
+	],
+	"version": "1.0.0",
+	"url": "https://github.com/Lakeus/CategoryMultisortNeue",
+	"description": "Allows readers to view one category page under several different collations (for example pinyin, zhuyin and stroke for Chinese) while the wiki keeps a single $wgCategoryCollation.",
+	"license-name": "GPL-2.0-or-later",
+	"requires": {
+		"MediaWiki": ">= 1.46.0"
+	},
+	"AutoloadNamespaces": {
+		"MediaWiki\\Extension\\CategoryMultisortNeue\\": "includes/"
+	},
+	"MessagesDirs": {
+		"CategoryMultisortNeue": [
+			"i18n"
+		]
+	},
+	"ExtensionMessagesFiles": {
+		"CategoryMultisortNeueMagic": "i18n/magicWords.php"
+	},
+	"ServiceWiringFiles": [
+		"includes/ServiceWiring.php"
+	],
+	"config": {
+		"CategoryMultisortNeueModes": {
+			"value": {
+				"default": ""
+			},
+			"description": "Map of sort mode id to the collation name used for that mode. The id is what appears in the cmsmode URL parameter and in the categorymultisortneue-mode-<id> message key. An empty collation name means 'use $wgCategoryCollation'."
+		},
+		"CategoryMultisortNeueDefaultMode": {
+			"value": "default",
+			"description": "Sort mode id selected when the reader has not chosen one and has no user preference."
+		},
+		"CategoryMultisortNeueShowSelector": {
+			"value": true,
+			"description": "Whether to show the sort mode selector on category pages."
+		},
+		"CategoryMultisortNeueWriteOnEdit": {
+			"value": true,
+			"description": "Whether edits should maintain categorylinks_multisort incrementally. When false, only the maintenance scripts write the table."
+		},
+		"CategoryMultisortNeuePreference": {
+			"value": true,
+			"description": "Whether the per-user 'preferred sort mode' preference is offered."
+		},
+		"CategoryMultisortNeueInlineFallback": {
+			"value": false,
+			"description": "Whether to also render the sort mode control in the page body, as a list of links, for skins that do not render sidebar portlets (Minerva). When JavaScript runs, the fallback is removed if the skin already rendered the portlet, so no reader sees the control twice."
+		}
+	},
+	"Hooks": {
+		"LoadExtensionSchemaUpdates": "SchemaChanges",
+		"ArticleFromTitle": "MediaWiki\\Extension\\CategoryMultisortNeue\\Hooks::onArticleFromTitle",
+		"ArticleDeleteComplete": "MediaWiki\\Extension\\CategoryMultisortNeue\\Hooks::onArticleDeleteComplete",
+		"ParserFirstCallInit": "MediaWiki\\Extension\\CategoryMultisortNeue\\Magics::onParserFirstCallInit",
+		"LinksUpdateComplete": "MediaWiki\\Extension\\CategoryMultisortNeue\\LinksUpdateHooks::onLinksUpdateComplete",
+		"GetPreferences": "MediaWiki\\Extension\\CategoryMultisortNeue\\PreferenceHooks::onGetPreferences",
+		"SidebarBeforeOutput": "MediaWiki\\Extension\\CategoryMultisortNeue\\SortModePortlet::onSidebarBeforeOutput",
+		"BeforePageDisplay": "MediaWiki\\Extension\\CategoryMultisortNeue\\PreferenceHooks::onBeforePageDisplay"
+	},
+	"HookHandlers": {
+		"SchemaChanges": {
+			"class": "MediaWiki\\Extension\\CategoryMultisortNeue\\SchemaHooks"
+		}
+	},
+	"ResourceFileModulePaths": {
+		"localBasePath": "modules",
+		"remoteExtPath": "CategoryMultisortNeue/modules"
+	},
+	"ResourceModules": {
+		"ext.categoryMultisortNeue": {
+			"scripts": "ext.categoryMultisortNeue.js",
+			"styles": "ext.categoryMultisortNeue.css",
+			"targets": [
+				"desktop",
+				"mobile"
+			]
+		}
+	},
+	"manifest_version": 2
+}

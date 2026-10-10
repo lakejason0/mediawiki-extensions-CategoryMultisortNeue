@@ -1,0 +1,28 @@
+{
+	"@metadata": {
+		"authors": [
+			"Lakeus"
+		]
+	},
+	"categorymultisortneue-desc": "{{desc|name=CategoryMultisortNeue|url=https://www.mediawiki.org/wiki/Extension:CategoryMultisortNeue}}",
+	"categorymultisortneue": "Label of the sidebar portlet that offers the sort modes. The message key is the portlet name, so the skin looks it up automatically and derives the portlet id (p-categorymultisortneue) and class (mw-portlet-categorymultisortneue) from it. Plural: this is the heading above a list of ways to sort the category.",
+	"categorymultisortneue-link-aria": "Accessible label of one sort mode link in the portlet, so a screen reader announces the action rather than just the mode name. Parameters:\n* $1 - the localised mode name",
+	"categorymultisortneue-mode-default": "Dropdown entry for the sort mode whose collation is left empty in $wgCategoryMultisortNeueModes, i.e. the wiki's own $wgCategoryCollation.",
+	"categorymultisortneue-mode-default-desc": "Tooltip for the {{msg-mw|categorymultisortneue-mode-default}} entry.",
+	"categorymultisortneue-mode-pinyin": "Example sort mode name. Wikis define their own modes; a mode id \"foo\" uses {{msg-mw|categorymultisortneue-mode-foo}} when it exists and falls back to the raw id \"foo\" when it does not.",
+	"categorymultisortneue-mode-pinyin-desc": "Tooltip for {{msg-mw|categorymultisortneue-mode-pinyin}}.",
+	"categorymultisortneue-mode-zhuyin": "{{doc-sorting|zhuyin}}",
+	"categorymultisortneue-mode-zhuyin-desc": "Tooltip for {{msg-mw|categorymultisortneue-mode-zhuyin}}.",
+	"categorymultisortneue-mode-stroke": "{{doc-sorting|stroke}}",
+	"categorymultisortneue-mode-stroke-desc": "Tooltip for {{msg-mw|categorymultisortneue-mode-stroke}}.",
+	"categorymultisortneue-pref": "Label of the user preference that stores the reader's preferred sort mode.",
+	"categorymultisortneue-pref-help": "Help text of the {{msg-mw|categorymultisortneue-pref}} preference.",
+	"categorymultisortneue-pref-default": "Preference option meaning \"follow the wiki default sort mode\".",
+	"categorymultisortneue-unavailable": "Error shown when a sort mode exists in configuration but its collation cannot be used. Parameters:\n* $1 - the sort mode id",
+	"categorymultisortneue-magic-missing-mode": "Error of the {{msg-mw|multisortdefaultsort}} magic word when no sort mode was given. Parameters:\n* $1 - comma separated list of known sort mode ids",
+	"categorymultisortneue-magic-unknown-mode": "Error of a CategoryMultisortNeue magic word when the given sort mode is not configured. Parameters:\n* $1 - the sort mode that was given\n* $2 - comma separated list of known sort mode ids",
+	"categorymultisortneue-magic-missing-arg": "Error of a CategoryMultisortNeue magic word when a required argument is empty. Parameters:\n* $1 - name of the missing argument",
+	"categorymultisortneue-magic-invalid-category": "Error of the {{msg-mw|multisortsortkey}} magic word when the second argument is not a category name. Parameters:\n* $1 - the value that was given",
+	"categorymultisortneue-summary": "Short explanation shown above the sort mode selector on a category page.",
+	"categorymultisortneue-unavailable-notice": "Notice shown on a category page when the requested sort mode could not be used and the wiki default order is shown instead. Parameters:\n* $1 - the sort mode id that was requested"
+}

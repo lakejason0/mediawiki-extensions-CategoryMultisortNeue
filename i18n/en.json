@@ -1,0 +1,28 @@
+{
+	"@metadata": {
+		"authors": [
+			"Lakeus"
+		]
+	},
+	"categorymultisortneue-desc": "Lets readers view one category page under several different collations, for example pinyin, zhuyin and stroke for Chinese, while the wiki keeps a single <code>$wgCategoryCollation</code>.",
+	"categorymultisortneue": "Sort category by",
+	"categorymultisortneue-link-aria": "Sort by $1",
+	"categorymultisortneue-mode-default": "Wiki default",
+	"categorymultisortneue-mode-default-desc": "Whatever $wgCategoryCollation the wiki is configured with.",
+	"categorymultisortneue-mode-pinyin": "Pinyin",
+	"categorymultisortneue-mode-pinyin-desc": "Sort Chinese by Hanyu Pinyin, A to Z.",
+	"categorymultisortneue-mode-zhuyin": "Zhuyin",
+	"categorymultisortneue-mode-zhuyin-desc": "Sort Chinese by Zhuyin (bopomofo) order.",
+	"categorymultisortneue-mode-stroke": "Stroke count",
+	"categorymultisortneue-mode-stroke-desc": "Sort Chinese by total stroke count.",
+	"categorymultisortneue-pref": "Sorting of category pages",
+	"categorymultisortneue-pref-help": "Which collation category pages should use for you by default. You can always override this for a single category with the selector on the page itself.",
+	"categorymultisortneue-pref-default": "Wiki default",
+	"categorymultisortneue-unavailable": "Sort mode \"$1\" is not available on this wiki.",
+	"categorymultisortneue-magic-missing-mode": "CategoryMultisortNeue: no sort mode was given. Specify one of: $1.",
+	"categorymultisortneue-magic-unknown-mode": "CategoryMultisortNeue: \"$1\" is not a known sort mode. Known modes: $2.",
+	"categorymultisortneue-magic-missing-arg": "CategoryMultisortNeue: $1 needs a sort key argument.",
+	"categorymultisortneue-magic-invalid-category": "CategoryMultisortNeue: \"$1\" is not a category name.",
+	"categorymultisortneue-summary": "This category can be sorted in several ways. Use the selector to change the order; the choice also applies to the paging links.",
+	"categorymultisortneue-unavailable-notice": "Sort mode \"$1\" is unavailable; showing the wiki default order instead."
+}

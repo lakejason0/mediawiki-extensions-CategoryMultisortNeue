@@ -1,0 +1,20 @@
+# Composer
+/vendor/
+composer.lock
+
+# Node (used only for ad-hoc syntax/logic checks during development)
+/node_modules/
+package-lock.json
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.iml
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Local overrides and scratch files
+.phpcs.cache
+*.log
