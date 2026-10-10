@@ -19,7 +19,11 @@ preferences.
 | **MediaWiki** | 1.46.0 (developed and tested against 1.46.0; see [Compatibility](#compatibility)) |
 | **Database** | MySQL/MariaDB, SQLite, PostgreSQL (uses MediaWiki's abstract schema) |
 | **Licence** | [GPL-2.0-or-later](COPYING) |
-| **Status** | Works; verified end to end on a 1.46.0 wiki with four collations |
+| **Status** | Working; verified end to end on a 1.46.0 wiki with four collations |
+
+> The extension is not registered on mediawiki.org yet. To add it there, create
+> `Extension:CategoryMultisortNeue` with the usual `{{Extension}}` infobox pointing at
+> this repository; nothing in the code needs to change first.
 
 ---
 

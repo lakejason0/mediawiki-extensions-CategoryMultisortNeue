@@ -2,7 +2,8 @@
 	"@metadata": {
 		"authors": [
 			"Lakeus"
-		]
+		],
+		"description": "{{name|CategoryMultisortNeue}}"
 	},
 	"categorymultisortneue-desc": "{{desc|name=CategoryMultisortNeue|url=https://www.mediawiki.org/wiki/Extension:CategoryMultisortNeue}}",
 	"categorymultisortneue": "Label of the sidebar portlet that offers the sort modes. The message key is the portlet name, so the skin looks it up automatically and derives the portlet id (p-categorymultisortneue) and class (mw-portlet-categorymultisortneue) from it. Plural: this is the heading above a list of ways to sort the category.",
