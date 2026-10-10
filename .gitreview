@@ -1,0 +1,7 @@
+# Configuration for `git review`, used when submitting patches to
+# Wikimedia Gerrit. The extension does not have to be submitted there; this file
+# only makes it possible.
+[gerrit]
+host=gerrit.wikimedia.org
+port=29418
+project=mediawiki/extensions/CategoryMultisortNeue

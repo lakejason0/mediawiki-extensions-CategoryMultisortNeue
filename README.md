@@ -50,6 +50,7 @@ preferences.
 - [Troubleshooting](#troubleshooting)
 - [Compatibility](#compatibility)
 - [Development](#development)
+- [Publishing](#publishing)
 
 ---
 
@@ -596,6 +597,35 @@ GPL-2.0-or-later` headers). The extension intentionally contains no PHPUnit suit
 because the table, the collations and the skin integration all need a real wiki; the
 checks that were run against it, and the reasoning behind the less obvious design
 decisions, are written up in [`docs/DESIGN.md`](docs/DESIGN.md).
+
+## Publishing
+
+This repository is ready to be pushed to GitHub as-is: `README.md`, `COPYING`
+(GPL-2.0), `composer.json`, `.gitignore`, `.gitattributes`, `CONTRIBUTING.md` and a
+`CI` workflow that lints PHP and JavaScript, validates every JSON file, and checks that
+each message in `i18n/en.json` is documented in `i18n/qqq.json`.
+
+To publish:
+
+```bash
+cd extensions/CategoryMultisortNeue
+
+# 1. Create an empty repository named CategoryMultisortNeue on GitHub
+#    (https://github.com/new — do not initialise it with a README).
+
+# 2. Point this checkout at it and push
+git remote add origin https://github.com/<you>/CategoryMultisortNeue.git
+git push -u origin main
+```
+
+`git review` is configured (`.gitreview`) if you would rather submit patches to
+Wikimedia Gerrit as `mediawiki/extensions/CategoryMultisortNeue`.
+
+Once pushed, listing the extension on mediawiki.org means creating
+`Extension:CategoryMultisortNeue` with the standard `{{Extension}}` infobox pointing
+at the repository and at `Special:PrefixIndex/Extension:CategoryMultisortNeue:` for
+its documentation subpages. Registration there is not required for the extension to
+work, and nothing in the code depends on it.
 
 ## Licence
 
