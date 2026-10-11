@@ -37,13 +37,14 @@ jobs:
       - name: JavaScript syntax
         run: node --check modules/ext.categoryMultisortNeue.js
 
-      # Note: the PHP snippets below are single quoted for bash on purpose, and they
-      # register their own error handler instead of using JSON_THROW_ON_ERROR.  In a
-      # run: block GitHub Actions interpolates ${{ }} and also tries to expand
-      # $identifiers before bash ever sees the command, so anything containing a bare
-      # $argv or a $ followed by a letter is unsafe in a workflow file.
       - name: JSON validity
         run: |
+          # The PHP snippets below are single quoted for bash on purpose.  Inside a
+          # run: block GitHub Actions performs its own expansion before bash ever
+          # sees the command, so a snippet that reads an argument out of the argv
+          # array silently loses it and fails with a confusing error.  That is why
+          # each snippet globs its own file list, and why the JSON step uses an
+          # error handler rather than JSON_THROW_ON_ERROR.
           php -r '
           set_error_handler( static function ( $severity, $message ) {
             throw new RuntimeException( $message );
