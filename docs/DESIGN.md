@@ -281,6 +281,85 @@ per-mode magic words are for.
 The whole mechanism short-circuits on a wiki without variants: the canonical variant
 resolves to null and no conversion is attempted, so an ordinary wiki pays nothing.
 
+### What folding actually costs
+
+Folding is not order-preserving, and it is worth being precise about what it gives up.
+Measured with PHP's `Collator` at every strength, the two members of a variant pair are
+distinct at **PRIMARY** strength in every Chinese collation — `体` is `a10d16` and
+`體` is `a3d436` under `zh@collation=unihan`. They are not the same character with a
+tie-breaker: ICU genuinely places them in different positions.
+
+So there are two defensible orderings and they cannot both be had:
+
+| | shape-based modes | sound-based modes |
+| --- | --- | --- |
+| **Per-variant order** | each variant follows its own radical and stroke count; `体` sorts as 人部 7 画, `體` as 骨部 23 画 | each variant follows its own reading; `发`/`發` are both *fā*, but `发`/`髮` are *fā*/*fà* |
+| **One shared order** (folding) | both members sort where the canonical variant belongs | both members sort where the canonical variant is read |
+
+Folding chooses the second. It is the right default because a **category is a shared,
+stored index**: the sort key lives in one row per member, and the order cannot differ
+per reader without either storing one key per variant or re-sorting at read time.
+Folding also keeps paging, the grouping headings and the member list consistent with
+each other, and makes the order reproducible.
+
+The price is real, and it is the price of any single ordering: a traditional-only
+reader looking for `體` finds it where `体` belongs. Note that **core has this problem
+too, and does not solve it** — `parserOutput->getTitleText()` is variant-converted, but
+category member lists are built from the database and show the raw title for everyone.
+`CategoryViewer` in core and this extension's viewer render identical, unconverted
+member titles for every variant.
+
+If a wiki would rather have per-variant order, the shape is: store one key per
+(member, category, mode, variant), rebuild on variant change, and make the category
+query join on the reader's preferred variant. That is a much larger change — the table
+grows by the number of variants, and `checkSortKeys` has to validate each — and it
+would need the per-page `convertSplitTitle()` result, which is only available where the
+parser output is, i.e. in `LinksUpdateComplete` and not in a maintenance rebuild from
+`categorylinks` alone.
+
+### Where the reader's variant is already available
+
+MediaWiki computes the variant-converted title once per parse and stores it, so an
+extension should read that rather than call the converter again:
+
+| API | Variant-correct? | Notes |
+| --- | --- | --- |
+| `ParserOutput::getTitleText()` | yes | set during parse; honours `-{T\|}-` first, otherwise `convertSplitTitle()`. The right source when parser output is at hand, which is `LinksUpdateComplete`. |
+| `LanguageConverter::convertSplitTitle( $title )` | yes | returns namespace / separator / main text converted for the current preferred variant |
+| `LanguageConverter::getConvRuleTitle()` | yes | the `-{T\|}-` value, or `false`. Only meaningful on a converter that has parsed the page. |
+| `LanguageConverter::convertTitle( $title )` | **no** | returns the title unchanged in the cases measured; do not rely on it |
+| `Title::getText()` / `getDBkey()` | no, by design | the stored title, which is what the category query needs |
+
+The extension currently folds the raw title text with `autoConvert()`, which is correct
+for the sort key but is a second conversion rather than the parser's authoritative one.
+Deriving from `getTitleText()` / `convertSplitTitle()` would additionally pick up pages
+whose title is reshaped by in-page conversion rules or a `-{T|}-` override. That matters
+only for such pages, and it needs the parser output, so it belongs in
+`LinksUpdateComplete` and not in `rebuildSortKeys`.
+
+### Readings that cannot be derived
+
+A collation stores one reading per character, so anything context-dependent needs an
+explicit sort key. Verified on real pages:
+
+- **`沧浪`** as a colour is *Cāng láng*, not *Cāng làng*. With
+  `{{#multisortdefaultsort:pinyin|canglang}}`, it and the near-homophone `苍浪` get
+  **byte-identical** pinyin keys (`aaa6c0b2bca6c0b2`) despite sharing no characters,
+  and both land under `C`. `苍狼`, which was left alone, sorts first by its derived
+  reading.
+- **`重`** is *chóng* in 重庆 and *zhòng* in 重量. With per-page keys they land under
+  `C` and `Z` respectively; without them, no single character-derived key could place
+  both.
+- **Cross-strait readings cannot be reconciled by one key.** `淆` is *xiáo* in the
+  mainland standard and *ㄧㄠˊ* in the Taiwan standard. ICU ships one reading: `淆`
+  sorts immediately **before** `小` in both pinyin and zhuyin, i.e. neither of the two
+  standard's positions relative to the *xiao* and *yao* families. A wiki that needs
+  both would need one key per variant, which is the same per-variant design described
+  above.
+
+ICU's Chinese collations do rank by reading: over 40 single-reading characters, the
+collation order agreed with alphabetical pinyin order for all 40.
+
 ## Schema registration
 
 The table is declared once, in `sql/categorylinks_multisort.json`, and the per-DBMS SQL

@@ -381,6 +381,14 @@ Practical notes:
 - Folding is applied to **all** modes, including pinyin and zhuyin. Those two already
   keep most variant pairs together because they sort by sound rather than shape, but
   folding them too means every mode agrees about where a pair belongs.
+- Folding is **not order-preserving**, and it is a deliberate trade. ICU places `体`
+  and `體` in genuinely different positions (they differ even at primary strength), so
+  a traditional-only reader looking for `體` finds it where `体` belongs. The
+  alternative — one order per reader variant — is not possible with a single stored key
+  per member; see [`docs/DESIGN.md`](docs/DESIGN.md).
+- Core has the same limitation and does not solve it: category member lists show the
+  page title as stored, for every reader, whatever variant they have selected. Only the
+  sort order is affected by this extension, not the displayed titles.
 - On a wiki whose language has no variants the whole mechanism short-circuits: the
   canonical variant resolves to nothing and no conversion is attempted, so an ordinary
   wiki pays nothing for it.
@@ -393,6 +401,22 @@ Practical notes:
   such as `发`/`發` are not), and MediaWiki has no way to give a page a reading. Where a
   reading is wrong or ambiguous, give the page an explicit sort key with
   `{{#multisortdefaultsort:}}` or `{{#multisortsortkey:}}`.
+
+### Readings the collation cannot know
+
+A collation stores one reading per character, so anything context-dependent, or
+anything the two Chinese standards disagree about, needs an explicit sort key. All of
+the following were verified on real pages:
+
+| Case | What to do |
+| --- | --- |
+| `沧浪` as a colour is *Cāng láng*, not *Cāng làng* | `{{#multisortdefaultsort:pinyin\|canglang}}` — it then sorts next to the unrelated near-homophone `苍浪` |
+| `重` is *chóng* in 重庆, *zhòng* in 重量 | a per-page key for each; no character-derived key can place both |
+| `淆` is *xiáo* mainland, *ㄧㄠˊ* Taiwan | one key cannot serve both standards; ICU ships a single reading, and it matches neither |
+
+ICU does rank Chinese by reading — over 40 single-reading characters the collation
+order matched alphabetical pinyin exactly — but it only ever has one reading to work
+from.
 
 ## Magic words
 
