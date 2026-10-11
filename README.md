@@ -634,6 +634,10 @@ lists, rather than taking arguments. In a workflow `run:` block GitHub Actions e
 substituted with nothing and fails with a confusing error; the comment in the workflow
 records this so it is not reintroduced.
 
+The actions it uses are `actions/checkout@v7` and `shivammathur/setup-php@v2`. Both
+support the current runner images, which matters because `ubuntu-latest` migrates to
+Ubuntu 26 in October 2026.
+
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). Patches are welcome as GitHub pull requests,
