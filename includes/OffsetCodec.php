@@ -34,23 +34,65 @@ class OffsetCodec {
 	private const PAGE_ID_BYTES = 8;
 
 	/**
+	 * Marks a cursor that continues a page ordered ascending (walking forwards).
+	 */
+	public const DIR_FORWARD = 'f';
+
+	/**
+	 * Marks a cursor that continues a page ordered descending (walking backwards).
+	 */
+	public const DIR_BACKWARD = 'b';
+
+	/** Comparison operators a cursor can carry, each encoded as one byte. */
+	private const OPERATOR_CODES = [ '>' => 'g', '>=' => 'G', '<' => 'l', '<=' => 'L' ];
+
+	/**
 	 * @param string $sortKey Binary sort key
-	 * @param int $pageId page_id of the row the cursor points at, the query's tiebreaker
+	 * @param int $pageId page_id of the row the cursor points at, used to break ties
+	 *   between rows sharing a sort key, which variant twins do
+	 * @param string $direction Which way the rows should come back, one of the DIR_*
+	 *   constants — the query's ORDER BY, and nothing else
+	 * @param string $keyOperator Comparison against the sort key, one of `>`, `>=`, `<`,
+	 *   `<=`. Carried explicitly because it is not derivable from the direction: a page
+	 *   can be ordered descending while still wanting the rows *after* its boundary row,
+	 *   which is exactly what a "previous page" link needs when the walk runs backwards.
+	 * @param string|null $idOperator Tie-break comparison, or null to follow $keyOperator
 	 * @return string URL safe token
 	 */
-	public static function encode( string $sortKey, int $pageId ): string {
+	public static function encode(
+		string $sortKey,
+		int $pageId,
+		string $direction,
+		string $keyOperator,
+		?string $idOperator = null
+	): string {
 		if ( $sortKey === '' ) {
 			return '';
 		}
 
-		$binary = pack( 'N', strlen( $sortKey ) ) . $sortKey . pack( 'J', $pageId );
+		$idOperator ??= $keyOperator;
+		if ( !isset( self::OPERATOR_CODES[$keyOperator] )
+			|| !isset( self::OPERATOR_CODES[$idOperator] )
+		) {
+			throw new \InvalidArgumentException( "Unsupported cursor operator: $keyOperator / $idOperator" );
+		}
+
+		// Fixed width prefix, so decoding never has to guess where a field ends:
+		// [direction][key operator][id operator][key length 4][key][page id 8].
+		$binary = $direction
+			. self::OPERATOR_CODES[$keyOperator]
+			. self::OPERATOR_CODES[$idOperator]
+			. pack( 'N', strlen( $sortKey ) )
+			. $sortKey
+			. pack( 'J', $pageId );
 
 		return rtrim( strtr( base64_encode( $binary ), '+/', '-_' ), '=' );
 	}
 
 	/**
 	 * @param string $token
-	 * @return array{sortkey:string,pageId:int}|null The cursor, or null when malformed
+	 * @return array{sortkey:string,pageId:int,direction:string,keyOperator:string,idOperator:string}|null
+	 *   The cursor, or null when malformed
 	 */
 	public static function decode( string $token ): ?array {
 		if ( $token === '' ) {
@@ -75,48 +117,61 @@ class OffsetCodec {
 			return null;
 		}
 
-		$minimum = self::LENGTH_BYTES + self::PAGE_ID_BYTES;
-		if ( strlen( $binary ) < $minimum ) {
+		$prefixLength = 3 + self::LENGTH_BYTES;
+		if ( strlen( $binary ) < $prefixLength + self::PAGE_ID_BYTES ) {
+			return null;
+		}
+
+		$direction = $binary[0];
+		if ( $direction !== self::DIR_FORWARD && $direction !== self::DIR_BACKWARD ) {
+			return null;
+		}
+		$keyOperator = array_search( $binary[1], self::OPERATOR_CODES, true );
+		$idOperator = array_search( $binary[2], self::OPERATOR_CODES, true );
+		if ( $keyOperator === false || $idOperator === false ) {
 			return null;
 		}
 
 		/** @var array{1:int} $header */
-		$header = unpack( 'N', substr( $binary, 0, self::LENGTH_BYTES ) );
+		$header = unpack( 'N', substr( $binary, 3, self::LENGTH_BYTES ) );
 		$keyLength = $header[1];
-		if ( $keyLength === 0 || strlen( $binary ) !== $minimum + $keyLength ) {
+		if ( $keyLength === 0 || strlen( $binary ) !== $prefixLength + $keyLength + self::PAGE_ID_BYTES ) {
 			return null;
 		}
 
-		$sortKey = substr( $binary, self::LENGTH_BYTES, $keyLength );
+		$sortKey = substr( $binary, $prefixLength, $keyLength );
 		/** @var array{1:int} $id */
-		$id = unpack( 'J', substr( $binary, self::LENGTH_BYTES + $keyLength ) );
+		$id = unpack( 'J', substr( $binary, $prefixLength + $keyLength ) );
 
-		return [ 'sortkey' => $sortKey, 'pageId' => $id[1] ];
+		return [
+			'sortkey' => $sortKey,
+			'pageId' => $id[1],
+			'direction' => $direction,
+			'keyOperator' => $keyOperator,
+			'idOperator' => $idOperator,
+		];
 	}
 
 	/**
-	 * The condition that selects the rows after a cursor, in the query's own order.
+	 * The condition that selects the rows a cursor points at.
 	 *
-	 * Rows sort by (sort key, page id), so "after the cursor" is either a greater sort
-	 * key, or an equal sort key with a greater page id. Spelled out rather than compared
-	 * as a row value, because the two columns have different types.
+	 * Both operators come straight from the cursor, so this does not have to reason about
+	 * walks or directions at all — which is the point: the pair (key operator, id
+	 * operator) is exactly what a page needs to ask for, and anything cleverer than that
+	 * is how the previous revision kept losing or repeating the boundary member.
+	 *
+	 * The id comparison always breaks ties between rows sharing a sort key, never
+	 * selects on its own: it is only consulted where the keys are equal.
 	 *
 	 * @param IReadableDatabase $db
-	 * @param array{sortkey:string,pageId:int} $cursor
-	 * @param bool $forward True for the next page, false for the previous one
+	 * @param array{sortkey:string,pageId:int,direction:string,keyOperator:string,idOperator:string} $cursor
 	 */
-	public static function cursorCondition(
-		IReadableDatabase $db,
-		array $cursor,
-		bool $forward
-	): string {
-		$operator = $forward ? '>' : '<';
-
+	public static function cursorCondition( IReadableDatabase $db, array $cursor ): string {
 		return $db->makeList( [
-			$db->expr( 'cms_sortkey', $operator, $cursor['sortkey'] ),
+			$db->expr( 'cms_sortkey', $cursor['keyOperator'], $cursor['sortkey'] ),
 			$db->makeList( [
 				$db->expr( 'cms_sortkey', '=', $cursor['sortkey'] ),
-				$db->expr( 'cms_from', $operator, $cursor['pageId'] ),
+				$db->expr( 'cms_from', $cursor['idOperator'], $cursor['pageId'] ),
 			], IReadableDatabase::LIST_AND ),
 		], IReadableDatabase::LIST_OR );
 	}

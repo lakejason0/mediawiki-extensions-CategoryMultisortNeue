@@ -345,11 +345,18 @@ so a wiki that configures only some variants still works.
 Per-variant keys change what paging has to do, and two bugs only become reachable once
 variant twins exist.
 
-**Cursors carry the tiebreaker.** Members sort by `(cms_sortkey, cms_from)`, so a sort
-key alone does not identify a row. Variant twins share a sort key — 12 tie groups in
-`zh-hans` against 0 in `zh` — so a cursor naming only the key served the first twin
-again on the next page. The cursor is now `[4-byte key length][key][8-byte page id]`,
-base64url encoded, with the page id as the tiebreaker, and the cursor is exclusive.
+**Cursors carry the row, the ordering and the comparison.** Members sort by
+`(cms_sortkey, cms_from)`, so a sort key alone does not identify a row. Variant twins
+share a sort key — 12 tie groups in `zh-hans` against 0 in `zh` — so a cursor naming only
+the key served the first twin again on the next page. A cursor now holds all three of:
+
+    [direction][key operator][id operator][4-byte key length][key][8-byte page id]
+
+with the operators encoded as single bytes (`g` `G` `l` `L`), because two of them are
+two characters wide and a variable-width prefix cannot be framed unambiguously. The
+comparison has to travel with the cursor: a control that moves *on* past a boundary row
+excludes it, while one that moves *back* over it includes it, and which of the two is
+wanted does not follow from the row or from the walk direction.
 
 **Section links must not inherit each other's cursors.** `$query` arrives from the
 request and is restated into each section's links. It carries `cmspagefrom`, which then
@@ -359,14 +366,28 @@ twice. Every paging parameter is now dropped from `$query` on the way in; each s
 builds its own.
 
 **Forward paging is verified** over HTTP for four variants and two modes: 11-12 pages
-each, `dupes=0 missing=0 extra=0` against a single-page baseline, and the chain stops on
-the real last page instead of emitting one empty page past it.
+each, `dupes=0 missing=0 extra=0` against a single-page baseline, the chain stops on the
+real last page instead of emitting one empty page past it, and the walk is reproducible
+from the cursors alone.
 
-**Backward paging is not yet correct.** Rows arrive in descending order when the request
-carries an `until` cursor, and the current code walks back only two pages before
-stopping. The link parameters are swapped for that case, but the chain is still short.
-This is a known gap: forward paging, which is what a reader normally uses, is verified,
-and the acceptance suite's paging check passes because it walks forward.
+**Backward paging is correct for a single step and not beyond.** Stepping forward and
+then back reproduces the previous page exactly — `forward 1 then back 1: YES` for every
+variant and both modes — which is the gesture a reader actually makes. *Chained*
+backward steps fall one page short: after n steps forward and n back the reader lands on
+page n rather than page 1. The cause is understood: each link is built from the current
+page's boundary rows, and a "previous" link needs the ordering to work out so that the
+page it names ends up on the far side of the current one. That is right for one step and
+drifts for the next, because the walk direction and the requested page direction are
+being asked to agree in a case where they do not.
+
+The fix is to stop deriving "previous" from the current page at all: remember the cursor
+the page was *reached* with, and let "previous" hand that same cursor back. That is
+exactly the information the reader followed to get here, so it is exact rather than
+reconstructed, and it removes the ordering guess entirely. It is a small amount of state
+on the viewer, and it is the next thing to do here.
+
+Neither gap affects the acceptance suite, whose paging check walks forwards, nor
+`core-diff`, which pins the default mode to byte-identical core output.
 
 ### Readings that cannot be derived
 
