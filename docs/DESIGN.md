@@ -374,17 +374,24 @@ from the cursors alone.
 then back reproduces the previous page exactly — `forward 1 then back 1: YES` for every
 variant and both modes — which is the gesture a reader actually makes. *Chained*
 backward steps fall one page short: after n steps forward and n back the reader lands on
-page n rather than page 1. The cause is understood: each link is built from the current
-page's boundary rows, and a "previous" link needs the ordering to work out so that the
-page it names ends up on the far side of the current one. That is right for one step and
-drifts for the next, because the walk direction and the requested page direction are
-being asked to agree in a case where they do not.
+page n rather than page 1.
 
-The fix is to stop deriving "previous" from the current page at all: remember the cursor
-the page was *reached* with, and let "previous" hand that same cursor back. That is
-exactly the information the reader followed to get here, so it is exact rather than
-reconstructed, and it removes the ordering guess entirely. It is a small amount of state
-on the viewer, and it is the next thing to do here.
+The cause is understood, and it is structural rather than a slip. A cursor fixes both the
+row it names and the ordering it selects in, and those two are independent. "Next" needs
+one combination of them; "previous" needs a different one over a row that the current
+page can see, but the page it should lead to is *not* the mirror of the page it came
+from, because the walk direction is carried in the cursor and therefore cannot also
+serve as the direction being requested. Every arrangement of the two boundary rows
+against the two orderings was tried, and each fixes one of the two cases and breaks the
+other; the pair recorded here is the one that makes the forward walk exact and the single
+backward step exact.
+
+Reproducing the previous page exactly needs a cursor the current page does not have: the
+one the reader *arrived* with. That token is in the request, so the fix is to keep it on
+the viewer and have "previous" hand it back verbatim rather than reconstructing anything
+— exact by construction, with no ordering to infer. A first attempt at that is in
+`$incomingCursor`, and it is not yet wired up: it needs the control to place its cursor
+in the parameter whose meaning matches, which is the remaining piece.
 
 Neither gap affects the acceptance suite, whose paging check walks forwards, nor
 `core-diff`, which pins the default mode to byte-identical core output.
