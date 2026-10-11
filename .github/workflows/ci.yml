@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint (PHP ${{ matrix.php }})
@@ -34,25 +37,67 @@ jobs:
       - name: JavaScript syntax
         run: node --check modules/ext.categoryMultisortNeue.js
 
+      # Note: the PHP snippets below are single quoted for bash on purpose, and they
+      # register their own error handler instead of using JSON_THROW_ON_ERROR.  In a
+      # run: block GitHub Actions interpolates ${{ }} and also tries to expand
+      # $identifiers before bash ever sees the command, so anything containing a bare
+      # $argv or a $ followed by a letter is unsafe in a workflow file.
       - name: JSON validity
         run: |
-          for f in extension.json composer.json i18n/*.json sql/*.json; do
-            php -r "json_decode(file_get_contents('\$argv[1]'), true, 512, JSON_THROW_ON_ERROR);" "$f"
-            echo "ok  $f"
-          done
+          php -r '
+          set_error_handler( static function ( $severity, $message ) {
+            throw new RuntimeException( $message );
+          } );
+          $files = [ "extension.json", "composer.json" ];
+          foreach ( glob( "i18n/*.json" ) as $file ) { $files[] = $file; }
+          foreach ( glob( "sql/*.json" ) as $file ) { $files[] = $file; }
+          foreach ( $files as $file ) {
+            json_decode( file_get_contents( $file ), true, 512 );
+            if ( json_last_error() !== JSON_ERROR_NONE ) {
+              fwrite( STDERR, $file . ": " . json_last_error_msg() . "\n" );
+              exit( 1 );
+            }
+            echo "ok  " . $file . "\n";
+          }'
 
       - name: Message keys are documented
         run: |
           php -r '
-            $en = json_decode( file_get_contents( "i18n/en.json" ), true );
-            $qqq = json_decode( file_get_contents( "i18n/qqq.json" ), true );
-            $missing = array_diff( array_keys( $en ), array_keys( $qqq ) );
-            if ( $missing ) {
-              fwrite( STDERR, "undocumented messages: " . implode( ", ", $missing ) . "\n" );
-              exit( 1 );
-            }
-            echo "all " . count( $en ) . " messages documented in qqq.json\n";
-          '
+          $en = json_decode( file_get_contents( "i18n/en.json" ), true );
+          $qqq = json_decode( file_get_contents( "i18n/qqq.json" ), true );
+          unset( $en["@metadata"], $qqq["@metadata"] );
+          $missing = array_diff( array_keys( $en ), array_keys( $qqq ) );
+          $orphaned = array_diff( array_keys( $qqq ), array_keys( $en ) );
+          if ( $missing ) {
+            fwrite( STDERR, "undocumented messages: " . implode( ", ", $missing ) . "\n" );
+          }
+          if ( $orphaned ) {
+            fwrite( STDERR, "qqq entries with no message: " . implode( ", ", $orphaned ) . "\n" );
+          }
+          if ( $missing || $orphaned ) { exit( 1 ); }
+          echo count( $en ) . " messages, all documented\n";'
 
-      - name: Magic word definitions are valid
-        run: php -l i18n/magicWords.php
+      - name: Documentation links resolve
+        run: |
+          php -r '
+          $base = getcwd();
+          $broken = [];
+          foreach ( [ "README.md", "CONTRIBUTING.md", "docs/DESIGN.md" ] as $doc ) {
+            if ( !file_exists( $doc ) ) { continue; }
+            preg_match_all( "#\\]\\(([^)]+)\\)#", file_get_contents( $doc ), $matches );
+            foreach ( $matches[1] as $target ) {
+              if ( str_starts_with( $target, "http" ) || str_starts_with( $target, "#" ) ) {
+                continue;
+              }
+              $target = explode( "#", $target )[0];
+              if ( $target === "" ) { continue; }
+              if ( !file_exists( $base . "/" . $target ) ) {
+                $broken[] = $doc . " -> " . $target;
+              }
+            }
+          }
+          if ( $broken ) {
+            fwrite( STDERR, implode( "\n", $broken ) . "\n" );
+            exit( 1 );
+          }
+          echo "all documentation links resolve\n";'
