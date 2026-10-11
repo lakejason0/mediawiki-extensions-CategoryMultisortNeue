@@ -29,7 +29,8 @@ class SortModeRegistry {
 
 	public function __construct(
 		private readonly CategoryMultisortNeueConfig $config,
-		private readonly CollationFactory $collationFactory
+		private readonly CollationFactory $collationFactory,
+		private readonly ?VariantFolder $variantFolder = null
 	) {
 		$this->logger = LoggerFactory::getInstance( 'CategoryMultisortNeue' );
 	}
@@ -57,7 +58,8 @@ class SortModeRegistry {
 				$id,
 				$resolved,
 				$isDefault,
-				fn ( string $name ) => $this->collationFactory->makeCollation( $name )
+				fn ( string $name ) => $this->collationFactory->makeCollation( $name ),
+				$this->variantFolder
 			);
 			if ( !$mode->isAvailable() ) {
 				$this->logger->warning(

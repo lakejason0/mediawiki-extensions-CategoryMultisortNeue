@@ -38,13 +38,16 @@ class SortMode {
 	 * @param bool $isDefault True when this mode means "use $wgCategoryCollation".
 	 * @param Collation|null $collation The constructed collation, or null when unusable.
 	 * @param string $error Empty when usable, otherwise a short human readable reason.
+	 * @param VariantFolder|null $variantFolder Folds writing-system variants, or null to
+	 *   sort on the text exactly as written.
 	 */
 	public function __construct(
 		public readonly string $id,
 		public readonly string $collationName,
 		public readonly bool $isDefault,
 		?Collation $collation,
-		string $error = ''
+		string $error = '',
+		private readonly ?VariantFolder $variantFolder = null
 	) {
 		$this->collation = $collation;
 		$this->error = $error;
@@ -57,12 +60,14 @@ class SortMode {
 	 * @param string $collationName
 	 * @param bool $isDefault
 	 * @param callable(string):Collation $factory
+	 * @param VariantFolder|null $variantFolder
 	 */
 	public static function create(
 		string $id,
 		string $collationName,
 		bool $isDefault,
-		callable $factory
+		callable $factory,
+		?VariantFolder $variantFolder = null
 	): self {
 		try {
 			$collation = $factory( $collationName );
@@ -76,7 +81,7 @@ class SortMode {
 			return new self( $id, $collationName, $isDefault, null, $error );
 		}
 
-		return new self( $id, $collationName, $isDefault, $collation );
+		return new self( $id, $collationName, $isDefault, $collation, '', $variantFolder );
 	}
 
 	/**
@@ -149,6 +154,10 @@ class SortMode {
 	 * category sort key (Title::getCategorySortkey() with the human readable
 	 * cl_sortkey_prefix), and the result is truncated to 230 bytes.
 	 *
+	 * Both halves of that input are folded to the canonical writing-system variant
+	 * first, so that 体 and 體 end up adjacent rather than however the collation
+	 * happens to rank their shapes. See VariantFolder.
+	 *
 	 * @param string $sortKeyPrefix cl_sortkey_prefix equivalent, i.e. what the user
 	 *   wrote in {{DEFAULTSORT:}} or after the pipe in [[Category:Foo|...]].
 	 */
@@ -156,8 +165,19 @@ class SortMode {
 		if ( $this->collation === null ) {
 			throw new \LogicException( "Sort mode '{$this->id}' is not available" );
 		}
+
+		// Title::getCategorySortkey() combines the prefix, a separator and the title
+		// text, and reads its own Title.  Both halves have to be in the canonical
+		// variant, and folding the combined string handles the prefix and the title
+		// in one pass without building a synthetic Title (which would also re-run
+		// title normalisation on the folded text).
+		$sortKeyInput = $title->getCategorySortkey( $sortKeyPrefix );
+		if ( $this->variantFolder !== null ) {
+			$sortKeyInput = $this->variantFolder->fold( $sortKeyInput );
+		}
+
 		return substr(
-			$this->collation->getSortKey( $title->getCategorySortkey( $sortKeyPrefix ) ),
+			$this->collation->getSortKey( $sortKeyInput ),
 			0,
 			self::MAX_SORTKEY_BYTES
 		);
@@ -165,11 +185,24 @@ class SortMode {
 
 	/**
 	 * Grouping letter for the category page headings.
+	 *
+	 * Folded like the sort key, so that a page cannot be grouped under a heading that
+	 * does not match the order it was sorted into.
 	 */
 	public function getFirstLetter( string $humanSortKey ): string {
 		if ( $this->collation === null ) {
 			return '';
 		}
+		if ( $this->variantFolder !== null ) {
+			$humanSortKey = $this->variantFolder->fold( $humanSortKey );
+		}
 		return $this->collation->getFirstLetter( $humanSortKey );
+	}
+
+	/**
+	 * The canonical variant sort keys are folded to, or null when this wiki has none.
+	 */
+	public function getCanonicalVariant(): ?string {
+		return $this->variantFolder?->getCanonicalVariant();
 	}
 }

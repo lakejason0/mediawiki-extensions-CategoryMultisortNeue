@@ -10,6 +10,7 @@ use MediaWiki\Extension\CategoryMultisortNeue\CategoryMultisortNeueConfig;
 use MediaWiki\Extension\CategoryMultisortNeue\SortKeyStore;
 use MediaWiki\Extension\CategoryMultisortNeue\SortModeRegistry;
 use MediaWiki\Extension\CategoryMultisortNeue\SortModeSelector;
+use MediaWiki\Extension\CategoryMultisortNeue\VariantFolder;
 use MediaWiki\MediaWikiServices;
 
 return [
@@ -17,10 +18,19 @@ return [
 		return new CategoryMultisortNeueConfig( $services->getMainConfig() );
 	},
 
+	'CategoryMultisortNeue.VariantFolder' => static function ( MediaWikiServices $services ) {
+		return new VariantFolder(
+			$services->getLanguageConverterFactory(),
+			$services->get( 'CategoryMultisortNeue.Config' ),
+			$services->getContentLanguage()
+		);
+	},
+
 	'CategoryMultisortNeue.SortModeRegistry' => static function ( MediaWikiServices $services ) {
 		return new SortModeRegistry(
 			$services->get( 'CategoryMultisortNeue.Config' ),
-			$services->getCollationFactory()
+			$services->getCollationFactory(),
+			$services->get( 'CategoryMultisortNeue.VariantFolder' )
 		);
 	},
 

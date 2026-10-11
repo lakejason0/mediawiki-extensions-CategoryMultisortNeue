@@ -113,6 +113,21 @@ class CategoryMultisortNeueConfig {
 	}
 
 	/**
+	 * Whether sort keys are folded to one canonical writing-system variant.
+	 */
+	public function foldVariants(): bool {
+		return (bool)$this->config->get( 'CategoryMultisortNeueFoldVariants' );
+	}
+
+	/**
+	 * The variant to fold to, or '' to let VariantFolder decide.
+	 */
+	public function getCanonicalVariant(): string {
+		$value = $this->config->get( 'CategoryMultisortNeueCanonicalVariant' );
+		return is_string( $value ) ? trim( $value ) : '';
+	}
+
+	/**
 	 * The collation the wiki uses when a mode leaves the collation name empty.
 	 */
 	public function getSiteCollationName(): string {

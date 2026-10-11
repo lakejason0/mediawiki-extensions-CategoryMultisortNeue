@@ -55,6 +55,9 @@ class MultiSortCategoryViewer extends CategoryViewer {
 
 	private readonly SortMode $mode;
 
+	/** Folds writing-system variants, shared with the mode that produced the keys. */
+	private readonly VariantFolder $variantFolder;
+
 	/**
 	 * True when the selected mode wraps $wgCategoryCollation, in which case the core
 	 * code paths are used unchanged.
@@ -116,6 +119,10 @@ class MultiSortCategoryViewer extends CategoryViewer {
 		/** @var SortModeRegistry $registry */
 		$registry = $services->get( 'CategoryMultisortNeue.SortModeRegistry' );
 		$this->registry = $registry;
+
+		/** @var VariantFolder $variantFolder */
+		$variantFolder = $services->get( 'CategoryMultisortNeue.VariantFolder' );
+		$this->variantFolder = $variantFolder;
 
 		if ( $modeId === null ) {
 			/** @var SortModeSelector $selector */
@@ -347,6 +354,11 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	/**
 	 * Grouping letter under the selected collation.
 	 *
+	 * Folded to the same canonical variant as the sort key.  Without that, a page
+	 * could be sorted next to its variant twin but filed under a different heading,
+	 * because the two variants differ in shape and therefore in stroke count and
+	 * radical.
+	 *
 	 * @param PageReference $page
 	 * @param string $sortKeyPrefix The raw cl_sortkey_prefix, i.e. what the reader
 	 *   wrote after the pipe in [[Category:Foo|...]] or in {{DEFAULTSORT:}}.
@@ -355,9 +367,13 @@ class MultiSortCategoryViewer extends CategoryViewer {
 		$title = MediaWikiServices::getInstance()->getTitleFactory()
 			->newFromPageReference( $page );
 
-		$letter = $this->activeCollation()->getFirstLetter(
-			$title->getCategorySortkey( $sortKeyPrefix )
-		);
+		$sortKeyInput = $title->getCategorySortkey( $sortKeyPrefix );
+		$variant = $this->mode->getCanonicalVariant();
+		if ( $variant !== null ) {
+			$sortKeyInput = $this->variantFolder->fold( $sortKeyInput );
+		}
+
+		$letter = $this->activeCollation()->getFirstLetter( $sortKeyInput );
 
 		return $this->ownLanguageConverter->convert( $letter );
 	}

@@ -51,6 +51,14 @@
 		"CategoryMultisortNeueInlineFallback": {
 			"value": false,
 			"description": "Whether to also render the sort mode control in the page body, as a list of links, for skins that do not render sidebar portlets (Minerva). When JavaScript runs, the fallback is removed if the skin already rendered the portlet, so no reader sees the control twice."
+		},
+		"CategoryMultisortNeueFoldVariants": {
+			"value": true,
+			"description": "Whether to fold writing-system variants to one canonical variant before building a sort key, so that variant pairs such as 体 and 體 are ordered together instead of by their differing shapes. Only has an effect on a wiki whose language has variants. Changing this requires rebuilding the sort keys."
+		},
+		"CategoryMultisortNeueCanonicalVariant": {
+			"value": "",
+			"description": "Language variant that sort keys are folded to, for example 'zh-hans' or 'zh-hant'. Empty means: use the site's own variant when it is a concrete one, otherwise zh-hans. Only used when $wgCategoryMultisortNeueFoldVariants is enabled."
 		}
 	},
 	"Hooks": {
