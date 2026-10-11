@@ -167,14 +167,14 @@ class DeleteSortKeys extends Maintenance {
 
 		while ( true ) {
 			$qb = $this->dbr->newSelectQueryBuilder()
-				->select( [ 'cms_from', 'cms_target_id', 'cms_mode' ] )
+				->select( [ 'cms_from', 'cms_target_id', 'cms_mode', 'cms_variant' ] )
 				->from( self::TABLE )
 				->leftJoin( 'categorylinks', null, [
 					'cl_from = cms_from',
 					'cl_target_id = cms_target_id',
 				] )
 				->where( [ 'cl_from' => null ] )
-				->orderBy( [ 'cms_from', 'cms_target_id', 'cms_mode' ] )
+				->orderBy( [ 'cms_from', 'cms_target_id', 'cms_mode', 'cms_variant' ] )
 				->limit( $batchSize );
 
 			if ( $modeFilter !== null ) {
@@ -186,7 +186,7 @@ class DeleteSortKeys extends Maintenance {
 
 			$batch = [];
 			foreach ( $qb->caller( __METHOD__ )->fetchResultSet() as $row ) {
-				$batch[] = [ (int)$row->cms_from, (int)$row->cms_target_id, $row->cms_mode ];
+				$batch[] = [ (int)$row->cms_from, (int)$row->cms_target_id, $row->cms_mode, $row->cms_variant ];
 			}
 
 			if ( $batch === [] ) {
@@ -320,7 +320,7 @@ class DeleteSortKeys extends Maintenance {
 	}
 
 	/**
-	 * @param array<int,array{0:int,1:int,2:string}> $tuples
+	 * @param array<int,array{0:int,1:int,2:string,3:string}> $tuples
 	 * @param array<string,bool> &$seen
 	 */
 	private function rememberTuples( array $tuples, array &$seen ): void {
@@ -330,7 +330,10 @@ class DeleteSortKeys extends Maintenance {
 	}
 
 	/**
-	 * @param array<int,array{0:int,1:int,2:string}> $tuples
+	 * Delete the rows for each (page, category, mode). The variant is deliberately not
+	 * part of the condition: dropping a stale mode must drop all of its variants.
+	 *
+	 * @param array<int,array{0:int,1:int,2:string,3:string}> $tuples
 	 */
 	private function deleteTuples( array $tuples ): void {
 		foreach ( array_chunk( $tuples, self::DELETE_CHUNK ) as $chunk ) {
@@ -352,18 +355,27 @@ class DeleteSortKeys extends Maintenance {
 	}
 
 	/**
-	 * Keyset pagination over the primary key (cms_from, cms_target_id, cms_mode).
+	 * Keyset pagination over the primary key
+	 * (cms_from, cms_target_id, cms_mode, cms_variant).
 	 *
-	 * @param array{0:int,1:int,2:string} $cursor
+	 * The variant has to be part of the keyset now that it is part of the primary key:
+	 * without it the scan would revisit the same (page, category, mode) once per
+	 * variant and could loop.
+	 *
+	 * @param array{0:int,1:int,2:string,3:string} $cursor
 	 */
 	private function keysetCondition( array $cursor ): string {
-		[ $from, $targetId, $modeId ] = $cursor;
+		[ $from, $targetId, $modeId, $variant ] = $cursor;
 		return $this->dbw->makeList( [
 			$this->dbw->expr( 'cms_from', '>', $from ),
 			$this->dbw->expr( 'cms_from', '=', $from )->and( 'cms_target_id', '>', $targetId ),
 			$this->dbw->expr( 'cms_from', '=', $from )
 				->and( 'cms_target_id', '=', $targetId )
 				->and( 'cms_mode', '>', $modeId ),
+			$this->dbw->expr( 'cms_from', '=', $from )
+				->and( 'cms_target_id', '=', $targetId )
+				->and( 'cms_mode', '=', $modeId )
+				->and( 'cms_variant', '>', $variant ),
 		], IDatabase::LIST_OR );
 	}
 }

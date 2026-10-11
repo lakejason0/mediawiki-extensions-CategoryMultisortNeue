@@ -29,11 +29,13 @@ class SortKeyStore {
 	public const FIELD_PAGE = 'cms_from';
 	public const FIELD_TARGET = 'cms_target_id';
 	public const FIELD_MODE = 'cms_mode';
+	public const FIELD_VARIANT = 'cms_variant';
 	public const FIELD_SORTKEY = 'cms_sortkey';
 
 	public function __construct(
 		private readonly SortModeRegistry $registry,
-		private readonly IConnectionProvider $connectionProvider
+		private readonly IConnectionProvider $connectionProvider,
+		private readonly VariantRegistry $variants
 	) {
 	}
 
@@ -51,14 +53,24 @@ class SortKeyStore {
 	 * Shaped for two callers: the maintenance rebuild (a batch of pages) and
 	 * LinksUpdateComplete (one page, immediately after categorylinks was rewritten).
 	 *
+	 * A key is stored for every (mode, variant) combination the wiki configures, so a
+	 * reader who switches writing system is served a genuinely different order.
+	 *
 	 * @param int $pageId
 	 * @param array<int,array{targetId:int,prefix:string,title:Title}> $rows One entry
 	 *   per current categorylinks row of the page.
 	 * @param IDatabase $dbw
 	 * @param string[]|null $modes Mode ids to compute, null for every available mode
+	 * @param string[]|null $variants Variants to compute, null for every configured one
 	 * @return int Number of rows written
 	 */
-	public function storeForPage( int $pageId, array $rows, IDatabase $dbw, ?array $modes = null ): int {
+	public function storeForPage(
+		int $pageId,
+		array $rows,
+		IDatabase $dbw,
+		?array $modes = null,
+		?array $variants = null
+	): int {
 		if ( $rows === [] ) {
 			return 0;
 		}
@@ -73,6 +85,11 @@ class SortKeyStore {
 		}
 		if ( $sortModes === [] ) {
 			return 0;
+		}
+
+		$variants ??= $this->variants->getVariants();
+		if ( $variants === [] ) {
+			$variants = [ VariantRegistry::MIXED_VARIANT ];
 		}
 
 		$targets = [];
@@ -95,45 +112,51 @@ class SortKeyStore {
 			}
 
 			foreach ( $sortModes as $mode ) {
-				try {
-					$sortKey = $mode->getSortKey( $title, $prefix );
-				} catch ( \Throwable $e ) {
-					$this->registry->getLogger()->warning(
-						'CategoryMultisortNeue: cannot compute sort key for {title} in mode {mode}: {error}',
-						[
-							'title' => $title->getPrefixedDBkey(),
-							'mode' => $mode->id,
-							'error' => $e->getMessage(),
-						]
-					);
-					continue;
-				}
+				foreach ( $variants as $variant ) {
+					try {
+						$sortKey = $mode->getSortKey( $title, $prefix, $variant );
+					} catch ( \Throwable $e ) {
+						$this->registry->getLogger()->warning(
+							'CategoryMultisortNeue: cannot compute sort key for {title} ' .
+							'in mode {mode} variant {variant}: {error}',
+							[
+								'title' => $title->getPrefixedDBkey(),
+								'mode' => $mode->id,
+								'variant' => $variant,
+								'error' => $e->getMessage(),
+							]
+						);
+						continue;
+					}
 
-				$key = "$pageId|$targetId|{$mode->id}";
-				if ( ( $existing[$key] ?? null ) === $sortKey ) {
-					continue;
-				}
+					$key = "$pageId|$targetId|{$mode->id}|$variant";
+					if ( ( $existing[$key] ?? null ) === $sortKey ) {
+						continue;
+					}
 
-				if ( isset( $existing[$key] ) ) {
-					// The row exists but moved; replace it rather than leave the old
-					// key behind for the category page to trip over.
-					$dbw->newDeleteQueryBuilder()
-						->deleteFrom( self::TABLE )
-						->where( [
-							self::FIELD_PAGE => $pageId,
-							self::FIELD_TARGET => $targetId,
-							self::FIELD_MODE => $mode->id,
-						] )
-						->caller( __METHOD__ )
-						->execute();
-				}
+					if ( isset( $existing[$key] ) ) {
+						// The row exists but moved; replace it rather than leave the old
+						// key behind for the category page to trip over.
+						$dbw->newDeleteQueryBuilder()
+							->deleteFrom( self::TABLE )
+							->where( [
+								self::FIELD_PAGE => $pageId,
+								self::FIELD_TARGET => $targetId,
+								self::FIELD_MODE => $mode->id,
+								self::FIELD_VARIANT => $variant,
+							] )
+							->caller( __METHOD__ )
+							->execute();
+					}
 
-				$inserts[] = [
-					self::FIELD_PAGE => $pageId,
-					self::FIELD_TARGET => $targetId,
-					self::FIELD_MODE => $mode->id,
-					self::FIELD_SORTKEY => $sortKey,
-				];
+					$inserts[] = [
+						self::FIELD_PAGE => $pageId,
+						self::FIELD_TARGET => $targetId,
+						self::FIELD_MODE => $mode->id,
+						self::FIELD_VARIANT => $variant,
+						self::FIELD_SORTKEY => $sortKey,
+					];
+				}
 			}
 		}
 
@@ -157,7 +180,7 @@ class SortKeyStore {
 	 * @param IReadableDatabase $db
 	 * @param int $pageId
 	 * @param int[] $targetIds
-	 * @return array<string,string> "page|target|mode" => sort key
+	 * @return array<string,string> "page|target|mode|variant" => sort key
 	 */
 	private function fetchExisting( IReadableDatabase $db, int $pageId, array $targetIds ): array {
 		if ( $targetIds === [] ) {
@@ -167,14 +190,21 @@ class SortKeyStore {
 		$existing = [];
 		foreach ( array_chunk( $targetIds, 500 ) as $chunk ) {
 			$res = $db->newSelectQueryBuilder()
-				->select( [ self::FIELD_TARGET, self::FIELD_MODE, self::FIELD_SORTKEY ] )
+				->select( [
+					self::FIELD_TARGET,
+					self::FIELD_MODE,
+					self::FIELD_VARIANT,
+					self::FIELD_SORTKEY,
+				] )
 				->from( self::TABLE )
 				->where( [ self::FIELD_PAGE => $pageId, self::FIELD_TARGET => $chunk ] )
 				->caller( __METHOD__ )
 				->fetchResultSet();
 			foreach ( $res as $row ) {
-				$existing[$pageId . '|' . $row->{self::FIELD_TARGET} . '|' . $row->{self::FIELD_MODE}]
-					= $row->{self::FIELD_SORTKEY};
+				$existing[
+					$pageId . '|' . $row->{self::FIELD_TARGET} . '|' . $row->{self::FIELD_MODE}
+					. '|' . $row->{self::FIELD_VARIANT}
+				] = $row->{self::FIELD_SORTKEY};
 			}
 		}
 		return $existing;
@@ -210,6 +240,20 @@ class SortKeyStore {
 	 *
 	 * Used by the category page to notice that the table has not been populated yet,
 	 * and by checkSortKeys.php.
+	 */
+	/**
+	 * The variant a reader with no stored keys is served, so a category is never empty
+	 * just because the wiki configured only some variants.
+	 */
+	public function getFallbackVariant(): string {
+		return VariantRegistry::MIXED_VARIANT;
+	}
+
+	/**
+	 * How many members of one category have a sort key in one mode.
+	 *
+	 * Counts every variant, since the caller is checking coverage of the mode rather
+	 * than of one reader's view.
 	 */
 	public function countForCategory( int $targetId, string $mode, IReadableDatabase $dbr ): int {
 		return (int)$dbr->newSelectQueryBuilder()

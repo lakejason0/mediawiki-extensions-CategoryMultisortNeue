@@ -38,8 +38,8 @@ class SortMode {
 	 * @param bool $isDefault True when this mode means "use $wgCategoryCollation".
 	 * @param Collation|null $collation The constructed collation, or null when unusable.
 	 * @param string $error Empty when usable, otherwise a short human readable reason.
-	 * @param VariantFolder|null $variantFolder Folds writing-system variants, or null to
-	 *   sort on the text exactly as written.
+	 * @param VariantRegistry|null $variants Provides per-variant title text, or null to
+	 *   always sort on the title as stored.
 	 */
 	public function __construct(
 		public readonly string $id,
@@ -47,7 +47,7 @@ class SortMode {
 		public readonly bool $isDefault,
 		?Collation $collation,
 		string $error = '',
-		private readonly ?VariantFolder $variantFolder = null
+		private readonly ?VariantRegistry $variants = null
 	) {
 		$this->collation = $collation;
 		$this->error = $error;
@@ -60,14 +60,14 @@ class SortMode {
 	 * @param string $collationName
 	 * @param bool $isDefault
 	 * @param callable(string):Collation $factory
-	 * @param VariantFolder|null $variantFolder
+	 * @param VariantRegistry|null $variants
 	 */
 	public static function create(
 		string $id,
 		string $collationName,
 		bool $isDefault,
 		callable $factory,
-		?VariantFolder $variantFolder = null
+		?VariantRegistry $variants = null
 	): self {
 		try {
 			$collation = $factory( $collationName );
@@ -81,7 +81,7 @@ class SortMode {
 			return new self( $id, $collationName, $isDefault, null, $error );
 		}
 
-		return new self( $id, $collationName, $isDefault, $collation, '', $variantFolder );
+		return new self( $id, $collationName, $isDefault, $collation, '', $variants );
 	}
 
 	/**
@@ -148,61 +148,80 @@ class SortMode {
 	}
 
 	/**
-	 * Binary sort key for one category link, using this mode's collation.
+	 * Binary sort key for one category link, using this mode's collation and one
+	 * language variant.
 	 *
-	 * Deliberately mirrors maintenance/updateCollation.php: the input is the page's
-	 * category sort key (Title::getCategorySortkey() with the human readable
-	 * cl_sortkey_prefix), and the result is truncated to 230 bytes.
+	 * The variant is part of the input on purpose. A reader who switches writing system
+	 * is meant to get a different order, and the variants really are in different
+	 * places: 体 is 人部 7 画 and 體 is 骨部 23 画, and they differ even at primary
+	 * collation strength. Core's convertCategoryKey() does the opposite — it makes keys
+	 * variant-independent — which is right for a single site-wide collation and wrong
+	 * here.
 	 *
-	 * Both halves of that input are folded to the canonical writing-system variant
-	 * first, so that 体 and 體 end up adjacent rather than however the collation
-	 * happens to rank their shapes. See VariantFolder.
-	 *
+	 * @param string $variant Language variant to build the key for, or '' for the
+	 *   title as stored.
 	 * @param string $sortKeyPrefix cl_sortkey_prefix equivalent, i.e. what the user
 	 *   wrote in {{DEFAULTSORT:}} or after the pipe in [[Category:Foo|...]].
 	 */
-	public function getSortKey( Title $title, string $sortKeyPrefix ): string {
+	public function getSortKey( Title $title, string $sortKeyPrefix, string $variant = '' ): string {
 		if ( $this->collation === null ) {
 			throw new \LogicException( "Sort mode '{$this->id}' is not available" );
 		}
 
-		// Title::getCategorySortkey() combines the prefix, a separator and the title
-		// text, and reads its own Title.  Both halves have to be in the canonical
-		// variant, and folding the combined string handles the prefix and the title
-		// in one pass without building a synthetic Title (which would also re-run
-		// title normalisation on the folded text).
-		$sortKeyInput = $title->getCategorySortkey( $sortKeyPrefix );
-		if ( $this->variantFolder !== null ) {
-			$sortKeyInput = $this->variantFolder->fold( $sortKeyInput );
-		}
-
 		return substr(
-			$this->collation->getSortKey( $sortKeyInput ),
+			$this->collation->getSortKey( $this->buildSortKeyInput( $title, $sortKeyPrefix, $variant ) ),
 			0,
 			self::MAX_SORTKEY_BYTES
 		);
 	}
 
 	/**
-	 * Grouping letter for the category page headings.
+	 * The string a sort key is computed from: the variant title text plus the
+	 * human-readable prefix, combined the way Title::getCategorySortkey() combines them.
 	 *
-	 * Folded like the sort key, so that a page cannot be grouped under a heading that
-	 * does not match the order it was sorted into.
+	 * The prefix is not variant-converted. It is authored text — a {{DEFAULTSORT:}} or a
+	 * pipe — and converting it would move a page the editor deliberately placed. Core
+	 * converts it once at write time for the single site-wide collation; per variant
+	 * there is no single correct conversion, so it is sorted as written.
 	 */
-	public function getFirstLetter( string $humanSortKey ): string {
-		if ( $this->collation === null ) {
-			return '';
+	private function buildSortKeyInput( Title $title, string $sortKeyPrefix, string $variant ): string {
+		$titleText = ( $variant === '' || $this->variants === null )
+			? $title->getText()
+			: $this->variants->getTitleTextForVariant( $title, $variant );
+
+		if ( $sortKeyPrefix === '' ) {
+			return $titleText;
 		}
-		if ( $this->variantFolder !== null ) {
-			$humanSortKey = $this->variantFolder->fold( $humanSortKey );
-		}
-		return $this->collation->getFirstLetter( $humanSortKey );
+
+		// Same separator as Title::getCategorySortkey(): a line feed, so the prefix only
+		// acts as a tiebreaker, and tab/newline stripped from the prefix because tab is
+		// the one character that can sort above LF.
+		$prefix = strtr( $sortKeyPrefix, "\n\t", '  ' );
+
+		return "$prefix\n$titleText";
 	}
 
 	/**
-	 * The canonical variant sort keys are folded to, or null when this wiki has none.
+	 * Grouping letter for the category page headings, for one variant.
+	 *
+	 * Derived from the same variant text as the sort key, so a page cannot be grouped
+	 * under a heading that disagrees with the order it was sorted into.
 	 */
-	public function getCanonicalVariant(): ?string {
-		return $this->variantFolder?->getCanonicalVariant();
+	public function getFirstLetter( Title $title, string $sortKeyPrefix, string $variant = '' ): string {
+		if ( $this->collation === null ) {
+			return '';
+		}
+		return $this->collation->getFirstLetter(
+			$this->buildSortKeyInput( $title, $sortKeyPrefix, $variant )
+		);
+	}
+
+	/**
+	 * Variants this mode computes keys for, or null when it always uses the stored title.
+	 *
+	 * @return string[]|null
+	 */
+	public function getVariants(): ?array {
+		return $this->variants?->getVariants();
 	}
 }

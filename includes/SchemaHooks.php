@@ -30,10 +30,33 @@ class SchemaHooks implements LoadExtensionSchemaUpdatesHook {
 	public function onLoadExtensionSchemaUpdates( $updater ) {
 		$dbType = $updater->getDB()->getType();
 		$dir = dirname( __DIR__ ) . '/sql';
+		$table = SortKeyStore::TABLE;
 
-		$updater->addExtensionTable(
-			SortKeyStore::TABLE,
-			"$dir/$dbType/tables-generated.sql"
+		// 1.1.0 added cms_variant and made it part of the primary key, which means the
+		// old (cms_from, cms_target_id, cms_mode) primary key and the
+		// cms_target_mode_sortkey index both have to be replaced. Rather than assemble
+		// per-DBMS ALTERs for a four-column primary key, the table is dropped and
+		// recreated: every row in it is a derived sort key that rebuildSortKeys can
+		// regenerate, and that command has to be run after this upgrade anyway.
+		$hasVariant = $updater->getDB()->fieldExists( $table, 'cms_variant', __METHOD__ );
+		if ( $hasVariant ) {
+			$updater->addExtensionTable( $table, "$dir/$dbType/tables-generated.sql" );
+			return;
+		}
+
+		$isNewTable = !$updater->getDB()->tableExists( $table, __METHOD__ );
+		if ( $isNewTable ) {
+			// Fresh install: nothing to migrate.
+			$updater->addExtensionTable( $table, "$dir/$dbType/tables-generated.sql" );
+			return;
+		}
+
+		$updater->output(
+			"\nCategoryMultisortNeue: upgrading categorylinks_multisort to per-variant sort " .
+			"keys. The table is a derived cache and will be recreated empty; run " .
+			"\"php maintenance/run.php CategoryMultisortNeue:rebuildSortKeys\" afterwards.\n"
 		);
+		$updater->dropExtensionTable( $table );
+		$updater->addExtensionTable( $table, "$dir/$dbType/tables-generated.sql" );
 	}
 }

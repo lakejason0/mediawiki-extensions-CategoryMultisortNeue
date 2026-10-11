@@ -56,7 +56,13 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	private readonly SortMode $mode;
 
 	/** Folds writing-system variants, shared with the mode that produced the keys. */
-	private readonly VariantFolder $variantFolder;
+	private readonly VariantRegistry $variants;
+
+	/**
+	 * The language variant this reader is served, i.e. the variant whose stored keys
+	 * this page is ordered by.
+	 */
+	private readonly string $readerVariant;
 
 	/**
 	 * True when the selected mode wraps $wgCategoryCollation, in which case the core
@@ -74,6 +80,36 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	 * @var array
 	 */
 	private array $ownQuery;
+
+	/**
+	 * Whether a section has more members beyond the ones rendered, in the direction
+	 * currently being walked.
+	 *
+	 * Separate from the cursors below, because a cursor is now always present for the
+	 * boundary rows: its presence cannot double as "there is another page". Core does
+	 * not need this because it stores the *extra* row's key, which only exists when a
+	 * further page does.
+	 *
+	 * @var array<string,bool>
+	 */
+	private array $hasMore = [ 'page' => false, 'subcat' => false, 'file' => false ];
+
+	/**
+	 * Cursors for the lowest and highest rows rendered, per section.
+	 *
+	 * The member query orders by (sort key, page id) and paging cursors are exclusive,
+	 * so the two boundaries are all either direction needs: "after everything shown"
+	 * and "before everything shown". Keeping both, rather than core's nextPage/prevPage
+	 * pair, is what lets the two directions share one code path — core's pair assumes
+	 * forward order, which silently swaps them when the page is rendered backwards.
+	 *
+	 * @var array<string,array{low:?string,high:?string}>
+	 */
+	private array $bounds = [
+		'page' => [ 'low' => null, 'high' => null ],
+		'subcat' => [ 'low' => null, 'high' => null ],
+		'file' => [ 'low' => null, 'high' => null ],
+	];
 
 	/**
 	 * Language converter used for the grouping letters.
@@ -112,6 +148,19 @@ class MultiSortCategoryViewer extends CategoryViewer {
 		$services = MediaWikiServices::getInstance();
 
 		unset( $query['title'] );
+
+		// Drop every paging cursor the request happened to carry. Each section builds
+		// its own cursors, and a cursor that arrived for one section must not be copied
+		// into another section's links: the subcategory list would then hand the page
+		// list's *old* cursor back to it, and the same page of members would be served
+		// twice. core never hits this because its cursors live in $from/$until rather
+		// than in the query array.
+		foreach ( array_keys( $query ) as $key ) {
+			if ( preg_match( '/^' . preg_quote( self::OFFSET_PREFIX, '/' ) . '[a-z]+(?:from|until)$/', $key ) ) {
+				unset( $query[$key] );
+			}
+		}
+
 		$this->ownQuery = $query;
 		$this->ownLanguageConverter = $services->getLanguageConverterFactory()->getLanguageConverter();
 		$this->ownCategory = Category::newFromTitle( $page );
@@ -120,9 +169,10 @@ class MultiSortCategoryViewer extends CategoryViewer {
 		$registry = $services->get( 'CategoryMultisortNeue.SortModeRegistry' );
 		$this->registry = $registry;
 
-		/** @var VariantFolder $variantFolder */
-		$variantFolder = $services->get( 'CategoryMultisortNeue.VariantFolder' );
-		$this->variantFolder = $variantFolder;
+		/** @var VariantRegistry $variants */
+		$variants = $services->get( 'CategoryMultisortNeue.VariantRegistry' );
+		$this->variants = $variants;
+		$this->readerVariant = $variants->getReaderVariant();
 
 		if ( $modeId === null ) {
 			/** @var SortModeSelector $selector */
@@ -352,12 +402,11 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	}
 
 	/**
-	 * Grouping letter under the selected collation.
+	 * Grouping letter under the selected collation, for the reader's variant.
 	 *
-	 * Folded to the same canonical variant as the sort key.  Without that, a page
-	 * could be sorted next to its variant twin but filed under a different heading,
-	 * because the two variants differ in shape and therefore in stroke count and
-	 * radical.
+	 * Derived from the same per-variant text as the member's sort key, so a page cannot
+	 * be sorted under one heading and listed under another. The heading legitimately
+	 * changes with the variant: 体 is ⠇ but 體 is ⠗ under stroke order.
 	 *
 	 * @param PageReference $page
 	 * @param string $sortKeyPrefix The raw cl_sortkey_prefix, i.e. what the reader
@@ -367,13 +416,7 @@ class MultiSortCategoryViewer extends CategoryViewer {
 		$title = MediaWikiServices::getInstance()->getTitleFactory()
 			->newFromPageReference( $page );
 
-		$sortKeyInput = $title->getCategorySortkey( $sortKeyPrefix );
-		$variant = $this->mode->getCanonicalVariant();
-		if ( $variant !== null ) {
-			$sortKeyInput = $this->variantFolder->fold( $sortKeyInput );
-		}
-
-		$letter = $this->activeCollation()->getFirstLetter( $sortKeyInput );
+		$letter = $this->mode->getFirstLetter( $title, $sortKeyPrefix, $this->readerVariant );
 
 		return $this->ownLanguageConverter->convert( $letter );
 	}
@@ -410,14 +453,14 @@ class MultiSortCategoryViewer extends CategoryViewer {
 				$rawUntil = $request->getVal( self::OFFSET_PREFIX . "{$type}until" );
 
 				if ( is_string( $rawFrom ) && $rawFrom !== '' ) {
-					$decoded = OffsetCodec::decode( $rawFrom );
-					if ( $decoded !== null ) {
-						$extraConds[] = $categoryLinksDbr->expr( 'cms_sortkey', '>=', $decoded );
+					$cursor = OffsetCodec::decode( $rawFrom );
+					if ( $cursor !== null ) {
+						$extraConds[] = OffsetCodec::cursorCondition( $categoryLinksDbr, $cursor, true );
 					}
 				} elseif ( is_string( $rawUntil ) && $rawUntil !== '' ) {
-					$decoded = OffsetCodec::decode( $rawUntil );
-					if ( $decoded !== null ) {
-						$extraConds[] = $categoryLinksDbr->expr( 'cms_sortkey', '<', $decoded );
+					$cursor = OffsetCodec::decode( $rawUntil );
+					if ( $cursor !== null ) {
+						$extraConds[] = OffsetCodec::cursorCondition( $categoryLinksDbr, $cursor, false );
 						$this->flip[$type] = true;
 					}
 				}
@@ -466,7 +509,12 @@ class MultiSortCategoryViewer extends CategoryViewer {
 						'cms',
 						[ 'cms_from = cl_from', 'cms_target_id = cl_target_id' ]
 					)
-					->andWhere( [ 'cms_mode' => $this->mode->id ] )
+					->andWhere( [
+						'cms_mode' => $this->mode->id,
+						// The reader's own variant: switching writing system is meant to
+						// change the order, and these keys were built for it.
+						'cms_variant' => $this->readerVariant,
+					] )
 					->useIndex( [ SortKeyStore::TABLE => 'cms_target_mode_sortkey' ] );
 				$orderField = 'cms_sortkey';
 			} else {
@@ -527,21 +575,26 @@ class MultiSortCategoryViewer extends CategoryViewer {
 				$linkCache->addGoodLinkObjFromRow( $title, $row );
 
 				$humanSortkey = $title->getCategorySortkey( $row->cl_sortkey_prefix );
-				// Paging offsets must be derivable from the row that was displayed,
-				// not from the request, so a page of results is reproducible.
+				// Paging offsets must be derivable from the rows that were displayed,
+				// not from the request, so a page of results is reproducible. The page
+				// id travels with the key because the query breaks ties on it.
 				$pagingValue = $useExtensionTable
-					? OffsetCodec::encode( (string)$row->cms_sortkey )
+					? OffsetCodec::encode( (string)$row->cms_sortkey, (int)$row->page_id )
 					: $humanSortkey;
 
 				if ( ++$count > $this->limit ) {
-					# We've reached the one extra which shows that there are
-					# additional pages to be had.  Stop here.
-					$this->nextPage[$type] = $pagingValue;
+					# The extra row proves there is another page, but it must not be
+					# shown and must not become a cursor: the paging cursors are
+					# exclusive, so naming it would skip that row.
+					$this->hasMore[$type] = true;
 					break;
 				}
-				if ( $count == $this->limit ) {
-					$this->prevPage[$type] = $pagingValue;
-				}
+
+				// Widen the shown range; the two boundaries are what the links use.
+				$bounds = $this->bounds[$type];
+				$bounds['low'] ??= $pagingValue;
+				$bounds['high'] = $pagingValue;
+				$this->bounds[$type] = $bounds;
 
 				$prefix = (string)$row->cl_sortkey_prefix;
 				if ( $title->getNamespace() === NS_CATEGORY ) {
@@ -735,42 +788,45 @@ class MultiSortCategoryViewer extends CategoryViewer {
 		$fromParam = $useExtension ? self::OFFSET_PREFIX . "{$type}from" : "{$type}from";
 		$untilParam = $useExtension ? self::OFFSET_PREFIX . "{$type}until" : "{$type}until";
 
-		// Offset actually in force, in request-parameter form.  Core knows this
-		// through isset($this->until[$type]); the extension reads its own parameter.
-		$untilValue = $useExtension
-			? (string)$this->getRequest()->getVal( $untilParam )
-			: (string)( $this->until[$type] ?? '' );
-		$usingUntil = $useExtension
-			? ( $this->flip[$type] && $untilValue !== '' )
-			: isset( $this->until[$type] );
+		$bounds = $this->bounds[$type];
 
-		if ( $usingUntil ) {
-			// Backwards: the "next" cursor is the first item displayed, which is what
-			// prevPage holds while flipping.
-			if ( $this->nextPage[$type] !== null ) {
-				return $this->buildPagingLinks(
-					(string)( $this->prevPage[$type] ?? '' ),
-					$untilValue,
-					$type,
-					$useExtension
-				);
+		if ( $useExtension ) {
+			// The links are built from the two boundaries of the shown range: "next"
+			// continues past the high end, "previous" goes back before the low end,
+			// whichever way the current page happens to be ordered. A boundary only
+			// becomes a link when there is something beyond it: "next" needs the extra
+			// row, and "previous" needs a cursor already in the request, because
+			// without one this is the first page.
+			$requested = $this->getRequest();
+			$hasIncomingCursor =
+				$requested->getVal( self::OFFSET_PREFIX . "{$type}from" ) !== null
+				|| $requested->getVal( self::OFFSET_PREFIX . "{$type}until" ) !== null;
+
+			$prevCursor = $hasIncomingCursor ? ( $bounds['low'] ?? '' ) : '';
+			$nextCursor = $this->hasMore[$type] ? ( $bounds['high'] ?? '' ) : '';
+
+			if ( $prevCursor === '' && $nextCursor === '' ) {
+				return '';
 			}
-			// Reached the beginning of the category: only "next" stays active.
-			return $this->buildPagingLinks( '', $untilValue, $type, $useExtension );
+
+			return $this->buildPagingLinks(
+				$prevCursor,
+				$nextCursor,
+				$type,
+				true,
+				$this->flip[$type]
+			);
 		}
 
-		// Forward.  When the request already carried a forward offset, that offset is
-		// the "previous" cursor; otherwise it comes from the core from[] array.
-		$forwardStart = $useExtension
-			? (string)( $this->getRequest()->getVal( $fromParam ) ?? '' )
-			: (string)( $this->from[$type] ?? '' );
-
+		// Core semantics, untouched.
+		$untilValue = (string)( $this->until[$type] ?? '' );
+		$forwardStart = (string)( $this->from[$type] ?? '' );
 		if ( $this->nextPage[$type] !== null || $forwardStart !== '' ) {
 			return $this->buildPagingLinks(
 				$forwardStart,
 				(string)( $this->nextPage[$type] ?? '' ),
 				$type,
-				$useExtension
+				false
 			);
 		}
 
@@ -781,8 +837,24 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	 * Restated from CategoryViewer::pagingLinks().  Offset values are passed
 	 * verbatim; the mode parameter is added so a page of results cannot be linked
 	 * under a different order.
+	 *
+	 * @param string $first Cursor to go back before (the low boundary of the shown
+	 *   range), or '' for no "previous" link.
+	 * @param string $last Cursor to go on past (the high boundary), or '' for no
+	 *   "next" link.
+	 * @param string $type
+	 * @param bool $useExtension
+	 * @param bool $flipped True when the caller renders rows in descending order, in
+	 *   which case the two cursors travel under the opposite parameter names so that
+	 *   the controls keep meaning "previous page" and "next page" to the reader.
 	 */
-	private function buildPagingLinks( string $first, string $last, string $type = '', bool $useExtension = false ): string {
+	private function buildPagingLinks(
+		string $first,
+		string $last,
+		string $type = '',
+		bool $useExtension = false,
+		bool $flipped = false
+	): string {
 		$prevLink = $this->msg( 'prev-page' )->escaped();
 		$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
 
@@ -791,10 +863,15 @@ class MultiSortCategoryViewer extends CategoryViewer {
 		$otherFrom = $useExtension ? "{$type}from" : self::OFFSET_PREFIX . "{$type}from";
 		$otherUntil = $useExtension ? "{$type}until" : self::OFFSET_PREFIX . "{$type}until";
 
+		// A descending page is reached by an "until" cursor and its rows run from the
+		// high boundary down to the low one, so the two cursors swap roles.
+		$prevParam = $flipped ? $forward : $backward;
+		$nextParam = $flipped ? $backward : $forward;
+
 		if ( $first != '' ) {
 			$prevQuery = $this->ownQuery;
-			$prevQuery[$backward] = $first;
-			unset( $prevQuery[$forward], $prevQuery[$otherFrom], $prevQuery[$otherUntil] );
+			$prevQuery[$prevParam] = $first;
+			unset( $prevQuery[$nextParam], $prevQuery[$otherFrom], $prevQuery[$otherUntil] );
 			$prevQuery[SortModeSelector::URL_PARAM] = $this->mode->id;
 			$prevLink = $linkRenderer->makeKnownLink(
 				$this->addFragmentToTitle( $this->page, $type ),
@@ -807,8 +884,8 @@ class MultiSortCategoryViewer extends CategoryViewer {
 		$nextLink = $this->msg( 'next-page' )->escaped();
 		if ( $last != '' ) {
 			$lastQuery = $this->ownQuery;
-			$lastQuery[$forward] = $last;
-			unset( $lastQuery[$backward], $lastQuery[$otherFrom], $lastQuery[$otherUntil] );
+			$lastQuery[$nextParam] = $last;
+			unset( $lastQuery[$prevParam], $lastQuery[$otherFrom], $lastQuery[$otherUntil] );
 			$lastQuery[SortModeSelector::URL_PARAM] = $this->mode->id;
 			$nextLink = $linkRenderer->makeKnownLink(
 				$this->addFragmentToTitle( $this->page, $type ),

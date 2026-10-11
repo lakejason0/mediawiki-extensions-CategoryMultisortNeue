@@ -42,8 +42,8 @@ preferences.
   - [`$wgCategoryMultisortNeuePreference`](#wgcategorymultisortneuepreference)
   - [`$wgCategoryMultisortNeueWriteOnEdit`](#wgcategorymultisortneuewriteonedit)
   - [`$wgCategoryMultisortNeueInlineFallback`](#wgcategorymultisortneueinlinefallback)
-  - [`$wgCategoryMultisortNeueFoldVariants`](#wgcategorymultisortneuefoldvariants)
-  - [`$wgCategoryMultisortNeueCanonicalVariant`](#wgcategorymultisortneuecanonicalvariant)
+  - [`$wgCategoryMultisortNeuePerVariantSortKeys`](#wgcategorymultisortneuepervariantsortkeys)
+  - [`$wgCategoryMultisortNeueVariants`](#wgcategorymultisortneuevariants)
 - [Choosing collations](#choosing-collations)
 - [Wikis with writing-system variants](#wikis-with-writing-system-variants)
 - [Magic words](#magic-words)
@@ -261,52 +261,40 @@ the portlet** — no reader ever sees the choice twice. Without JavaScript both 
 are present on skins that render portlets; that is the price of covering Minerva, and
 it is why this is opt-in.
 
-### `$wgCategoryMultisortNeueFoldVariants`
+### `$wgCategoryMultisortNeuePerVariantSortKeys`
 
 | | |
 | --- | --- |
 | **Type** | `bool` |
 | **Default** | `true` |
 
-Whether to fold writing-system variants to one canonical variant before building a
-sort key. Only has an effect on a wiki whose [language has
-variants](#wikis-with-writing-system-variants); elsewhere it is a no-op.
+Whether to store one sort key per language variant, so that a reader's chosen variant
+produces a different category order. Only has an effect on a wiki whose
+[language has variants](#wikis-with-writing-system-variants); elsewhere there is one
+order and this does nothing.
 
-Without folding, collations that rank by shape cannot be used as an index on a
-mixed-variant wiki, because variant pairs are different characters with different
-shapes:
+When off, every reader gets the order of the text exactly as stored. **Changing this
+setting requires rebuilding the sort keys.**
 
-| | stroke order |
-| --- | --- |
-| raw | 大 小 **体** 国 **國 體** |
-| folded | 大 小 **体 体** **国 国** |
-
-**Changing this setting (or the canonical variant) requires rebuilding the sort
-keys** with `rebuildSortKeys`, otherwise `checkSortKeys` will report every existing
-key as outdated.
-
-### `$wgCategoryMultisortNeueCanonicalVariant`
+### `$wgCategoryMultisortNeueVariants`
 
 | | |
 | --- | --- |
-| **Type** | `string` |
-| **Default** | `''` (decide automatically) |
+| **Type** | `string[]` |
+| **Default** | `[]` (every variant of the wiki's language) |
 
-The variant that sort keys are folded to, for example `zh-hans` or `zh-hant`. Only
-used when `$wgCategoryMultisortNeueFoldVariants` is enabled.
+Language variants to build sort keys for, for example:
 
-Empty means: use the site's own variant when it is a concrete one (so a wiki whose
-content is predominantly traditional folds towards traditional), otherwise
-`zh-hans`.
+```php
+$wgCategoryMultisortNeueVariants = [ 'zh', 'zh-hans', 'zh-hant' ];
+```
 
-The value must be a variant that text can actually be converted *to*, not merely a
-name that `validateVariant()` accepts. For Chinese, `zh` is in the variant list but is
-the "no conversion" marker: nothing converts to it, and folding towards it would
-silently do nothing. An unusable value is logged and replaced by the fallback.
+The wiki's mixed/un-converted variant — `zh` — is always included, and is the fallback
+for a reader whose variant has no stored keys. A reader whose preferred variant is not
+in this list is served the mixed order rather than an empty category.
 
-`zh-hans` is the fallback rather than `zh-hant` because the conversion tables are not
-symmetric: folding towards simplified collapses every variant pair measured, while the
-traditional direction leaves `里/裡` and `台/臺` distinct.
+Narrowing the list saves database space and rebuild time: each extra variant costs one
+more row per (member, category, mode).
 
 ## Choosing collations
 
@@ -345,62 +333,56 @@ the converter trivial, with no variants at all.
 
 **Category pages do not follow the converter, and this breaks shape-based sorting.**
 `体` and `體` are the same word, but they are different characters — 7 strokes against
-23, different radicals — so a stroke or radical ordering scatters them:
+23, different radicals — so a single shape-based ordering scatters them. Worse, the
+order the reader wants is different from the order anyone else wants:
 
 ```
-stroke order, as written : 大 小 体 国 國 體
+stroke order, as written    : 大 小 体 国 國 體
+stroke order, simplified    : 大 小 体 体 国 国
 ```
 
-Neither of them is where a reader would look, and the same applies to radical
-(Unihan) order. Measured on a category of 12 variant pairs, **none** were adjacent
-before folding, with pairs as far apart as positions 6 and 45 of 57.
+A simplified reader wants `体` where 7 strokes belongs; a traditional reader wants
+`體` where 23 strokes belongs, in the 骨部. Neither is wrong. So this extension stores
+**one sort key per variant** and serves each reader their own, which is what
+`$wgCategoryMultisortNeuePerVariantSortKeys` (on by default) does.
 
-With folding enabled — the default — both members of each pair are folded to one
-canonical variant before the sort key is built, so they end up next to each other and
-under the same grouping heading:
+Measured on a category of 12 variant pairs, stroke mode, rendered over HTTP:
 
-```
-stroke order, folded     : 大 小 体 体 国 国
-```
+| reader variant | rendered order |
+| --- | --- |
+| *(none)*, `zh` | 万@7 后@27 体@31 里@34 国@35 … 後@38 國@43 萬@45 裡@46 體@50 |
+| `zh-hans` | 万@7 **萬@8** 后@34 **後@35** **体@39 體@40** 里@42 **裡@43** 国@44 **國@45** |
+| `zh-hant` | 里@26 后@30 **後@31** 国@36 **國@37** 万@40 **萬@41** **体@49 體@50** |
 
-All 12 pairs become adjacent, all 12 share a heading, and the resulting order is
-**identical whichever variant the reader selects** — which is the point, since a
-category is a shared index rather than a per-reader view.
+Three genuinely different orders from the same stored category, and the grouping
+headings move with them — `体` is `⠇` under `zh-hans` but `⠗` under `zh-hant`.
 
-Both halves of the sort key are folded, so a `{{DEFAULTSORT:}}` written in one variant
-and a title written in the other still meet:
+`zh` is the **mixed or un-converted** state: it is the order of the text exactly as
+written, and it is what a reader gets when they have chosen not to convert, as well as
+the fallback for any variant that has no stored keys.
 
-```wikitext
-{{DEFAULTSORT:體}}          <!-- traditional -->
-{{#multisortdefaultsort:zhuyin|体}}   <!-- per-mode, simplified -->
-[[Category:Cities]]
-```
+How the variant changes the order depends on the mode, and this is worth understanding:
+
+- **Stroke and radical (Unihan) modes** move nearly everything, because the characters
+  themselves differ. `体` → `體` changes radical *and* stroke count.
+- **Pinyin and zhuyin move only what is read differently.** `发`/`髮`, `干`/`乾`,
+  `只`/`隻`, `面`/`麵`, `斗`/`鬥`, `系`/`係`, `别`/`彆` and `里`/`裡` get different keys
+  under `zh-hant`; `体`/`體`, `国`/`國` and `万`/`萬` do not, because those are read the
+  same in both writing systems and so belong in the same place either way.
+- **Cross-strait readings do not move at all**, because ICU ships one reading per
+  character. See below.
 
 Practical notes:
 
-- Folding is applied to **all** modes, including pinyin and zhuyin. Those two already
-  keep most variant pairs together because they sort by sound rather than shape, but
-  folding them too means every mode agrees about where a pair belongs.
-- Folding is **not order-preserving**, and it is a deliberate trade. ICU places `体`
-  and `體` in genuinely different positions (they differ even at primary strength), so
-  a traditional-only reader looking for `體` finds it where `体` belongs. The
-  alternative — one order per reader variant — is not possible with a single stored key
-  per member; see [`docs/DESIGN.md`](docs/DESIGN.md).
-- Core has the same limitation and does not solve it: category member lists show the
-  page title as stored, for every reader, whatever variant they have selected. Only the
-  sort order is affected by this extension, not the displayed titles.
-- On a wiki whose language has no variants the whole mechanism short-circuits: the
-  canonical variant resolves to nothing and no conversion is attempted, so an ordinary
-  wiki pays nothing for it.
-- Text with no variant mapping (Latin, Cyrillic, Greek, digits, Hangul, …) is returned
-  unchanged, so folding cannot disturb an existing Latin ordering.
-- After switching a wiki to `zh`, or changing the canonical variant, run
-  `rebuildSortKeys` and then `checkSortKeys`.
-- Pinyin and zhuyin place variant pairs together but cannot merge them: `体` and `體`
-  are genuinely pronounced differently (`tǐ` and `tǐ` are the same here, but many pairs
-  such as `发`/`發` are not), and MediaWiki has no way to give a page a reading. Where a
-  reading is wrong or ambiguous, give the page an explicit sort key with
-  `{{#multisortdefaultsort:}}` or `{{#multisortsortkey:}}`.
+- On a wiki whose language has no variants nothing extra is stored: one key per
+  (member, category, mode), in the mixed state.
+- Each extra variant costs one row per (member, category, mode). Use
+  `$wgCategoryMultisortNeueVariants` to store only the ones readers actually use.
+- After switching a wiki to `zh`, or changing either setting, run `rebuildSortKeys`
+  and then `checkSortKeys`.
+- Core has the same gap and does not close it: category member *titles* are shown as
+  stored for every reader, whatever variant they have selected. Only the ordering
+  follows the variant.
 
 ### Readings the collation cannot know
 
@@ -691,15 +673,22 @@ Removing a mode leaves its rows behind; they are harmless but reported as *stale
 Run `deleteSortKeys --stale-modes-only`.
 
 **`checkSortKeys` reports everything as outdated right after an upgrade.**
-Expected when `$wgCategoryMultisortNeueFoldVariants` changed, or when the wiki's
-language changed so the canonical variant did. Run `rebuildSortKeys`.
+Expected when `$wgCategoryMultisortNeuePerVariantSortKeys` changed, when
+`$wgCategoryMultisortNeueVariants` changed, or when the wiki's language changed. Run
+`rebuildSortKeys`.
 
-**Variant pairs are still not next to each other.**
+**Upgrading from 1.0.x.** The table gains a `cms_variant` column which becomes part of
+the primary key. `update.php` recreates the table empty — it is a derived cache — and
+then you must run `rebuildSortKeys`.
+
+**A category is empty for some readers.** That reader's variant has no stored keys.
+Either add it to `$wgCategoryMultisortNeueVariants`, or accept the fallback: a variant
+with no keys is served the mixed (`zh`) order rather than nothing.
+
+**Variant pairs are not next to each other, and the order does not change.**
 Check that the wiki's language is the base code (`zh`, not `zh-hans`) — otherwise the
-converter has no variants and there is nothing to fold, which is the correct behaviour
-rather than a bug. On a `zh` wiki, check the canonical variant actually appears in the
-log as a conversion target; see
-[`$wgCategoryMultisortNeueCanonicalVariant`](#wgcategorymultisortneuecanonicalvariant).
+converter has no variants, so there is only one order and that is the correct
+behaviour rather than a bug.
 
 **Paging repeats a page forever.**
 Should not happen; if it does, the query is ignoring the extension's offsets. Check

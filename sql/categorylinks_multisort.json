@@ -22,6 +22,12 @@
 				"options": { "notnull": true, "length": 32 }
 			},
 			{
+				"name": "cms_variant",
+				"comment": "Language variant this key was built for. The wiki's mixed/un-converted variant ('zh') when variant-specific keys are disabled. A reader is served the key for their own variant, falling back to the default variant.",
+				"type": "string",
+				"options": { "notnull": true, "length": 32, "default": "zh" }
+			},
+			{
 				"name": "cms_sortkey",
 				"comment": "Binary sort key produced by the mode's collation. Truncated to 230 bytes, the same limit maintenance/updateCollation.php applies.",
 				"type": "blob",
@@ -31,16 +37,21 @@
 		"indexes": [
 			{
 				"name": "cms_target_mode_sortkey",
-				"comment": "Serves the category page query: WHERE cms_target_id = ? AND cms_mode = ? ORDER BY cms_sortkey",
-				"columns": [ "cms_target_id", "cms_mode", "cms_sortkey", "cms_from" ],
+				"comment": "Serves the category page query: WHERE cms_target_id = ? AND cms_mode = ? AND cms_variant = ? ORDER BY cms_sortkey",
+				"columns": [ "cms_target_id", "cms_mode", "cms_variant", "cms_sortkey", "cms_from" ],
 				"unique": false
 			},
 			{
 				"name": "cms_mode",
 				"columns": [ "cms_mode" ],
 				"unique": false
+			},
+			{
+				"name": "cms_variant",
+				"columns": [ "cms_variant" ],
+				"unique": false
 			}
 		],
-		"pk": [ "cms_from", "cms_target_id", "cms_mode" ]
+		"pk": [ "cms_from", "cms_target_id", "cms_mode", "cms_variant" ]
 	}
 ]

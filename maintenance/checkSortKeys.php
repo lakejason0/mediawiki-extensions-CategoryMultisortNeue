@@ -66,6 +66,9 @@ class CheckSortKeys extends Maintenance {
 	/** @var array<string,SortMode> Mode id => mode, the ones actually checked. */
 	private array $modes = [];
 
+	/** @var string[] Language variants being validated. */
+	private array $variants = [];
+
 	private IMaintainableDatabase $dbw;
 
 	private IReadableDatabase $dbr;
@@ -129,6 +132,8 @@ class CheckSortKeys extends Maintenance {
 		$registry = $this->getRegistry();
 		$this->allModes = $registry->getModes();
 		$this->modes = $this->resolveModes();
+		$this->variants = $this->getServiceContainer()
+			->get( 'CategoryMultisortNeue.VariantRegistry' )->getVariants();
 
 		$this->reportModeAvailability( $registry );
 		$this->checkRows();
@@ -225,10 +230,15 @@ class CheckSortKeys extends Maintenance {
 			// REPORT.md 6.1: getFirstLetter() throws for ICU locales that are
 			// not registered in first-letters-root.php, even though getSortKey()
 			// works.  A mode in that state must never reach a category page.
+			// Probed through the mode rather than the collation directly, so this
+			// exercises the same path the category page uses.
 			try {
 				$letters = [];
 				foreach ( [ '安', 'A', '1' ] as $probe ) {
-					$letters[] = $probe . '=>' . $mode->getFirstLetter( $probe );
+					$letters[] = $probe . '=>' . $mode->getFirstLetter(
+						Title::makeTitle( NS_MAIN, $probe ),
+						''
+					);
 				}
 				$this->output( '               first letters: ' . implode( ' ', $letters ) . "\n" );
 			} catch ( Throwable $e ) {
@@ -336,44 +346,49 @@ class CheckSortKeys extends Maintenance {
 						$info['target'],
 						$info['prefix']
 					);
-					try {
-						$expected = $mode->getSortKey( $info['title'], $prefix );
-					} catch ( Throwable $e ) {
-						$this->error( sprintf(
-							'mode "%s" failed for page %d / category %d: %s',
-							$modeId,
-							$from,
-							$targetId,
-							$e->getMessage()
-						) );
-						$this->mismatched++;
-						continue;
-					}
+					foreach ( $this->variants as $variant ) {
+						try {
+							$expected = $mode->getSortKey( $info['title'], $prefix, $variant );
+						} catch ( Throwable $e ) {
+							$this->error( sprintf(
+								'mode "%s" variant "%s" failed for page %d / category %d: %s',
+								$modeId,
+								$variant,
+								$from,
+								$targetId,
+								$e->getMessage()
+							) );
+							$this->mismatched++;
+							continue;
+						}
 
-					$actual = $stored[$from][$targetId][$modeId] ?? null;
-					if ( $actual === null ) {
-						$this->missing++;
-						$this->sample( 'missing', sprintf(
-							'page %d "%s" -> category %d, mode %s',
-							$from,
-							$info['title']->getPrefixedText(),
-							$targetId,
-							$modeId
-						) );
-						continue;
-					}
+						$actual = $stored[$from][$targetId][$modeId][$variant] ?? null;
+						if ( $actual === null ) {
+							$this->missing++;
+							$this->sample( 'missing', sprintf(
+								'page %d "%s" -> category %d, mode %s, variant %s',
+								$from,
+								$info['title']->getPrefixedText(),
+								$targetId,
+								$modeId,
+								$variant
+							) );
+							continue;
+						}
 
-					if ( $actual !== $expected ) {
-						$this->mismatched++;
-						$this->sample( 'mismatch', sprintf(
-							'page %d "%s" -> category %d, mode %s: stored %s, computed %s',
-							$from,
-							$info['title']->getPrefixedText(),
-							$targetId,
-							$modeId,
-							bin2hex( $actual ),
-							bin2hex( $expected )
-						) );
+						if ( $actual !== $expected ) {
+							$this->mismatched++;
+							$this->sample( 'mismatch', sprintf(
+								'page %d "%s" -> category %d, mode %s, variant %s: stored %s, computed %s',
+								$from,
+								$info['title']->getPrefixedText(),
+								$targetId,
+								$modeId,
+								$variant,
+								bin2hex( $actual ),
+								bin2hex( $expected )
+							) );
+						}
 					}
 				}
 			}
@@ -585,7 +600,7 @@ class CheckSortKeys extends Maintenance {
 	private function fetchStoredKeys( array $fromIds ): array {
 		$stored = [];
 		$res = $this->dbr->newSelectQueryBuilder()
-			->select( [ 'cms_from', 'cms_target_id', 'cms_mode', 'cms_sortkey' ] )
+			->select( [ 'cms_from', 'cms_target_id', 'cms_mode', 'cms_variant', 'cms_sortkey' ] )
 			->from( self::TABLE )
 			->where( [
 				'cms_from' => $fromIds,
@@ -595,7 +610,8 @@ class CheckSortKeys extends Maintenance {
 			->fetchResultSet();
 
 		foreach ( $res as $row ) {
-			$stored[(int)$row->cms_from][(int)$row->cms_target_id][$row->cms_mode] = $row->cms_sortkey;
+			$stored[(int)$row->cms_from][(int)$row->cms_target_id][$row->cms_mode][$row->cms_variant]
+				= $row->cms_sortkey;
 		}
 		return $stored;
 	}

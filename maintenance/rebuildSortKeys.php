@@ -74,6 +74,9 @@ class RebuildSortKeys extends Maintenance {
 	/** @var array<string,SortMode> Mode id => mode, only the available ones. */
 	private array $modes = [];
 
+	/** @var string[] Language variants to build keys for. */
+	private array $variants = [];
+
 	private IMaintainableDatabase $dbw;
 
 	private IReadableDatabase $dbr;
@@ -91,6 +94,12 @@ class RebuildSortKeys extends Maintenance {
 		);
 
 		$this->addOption( 'mode', 'Only rebuild this mode id (default: every configured mode)', false, true );
+		$this->addOption(
+			'variant',
+			'Only rebuild this language variant (default: every configured variant)',
+			false,
+			true
+		);
 		$this->addOption( 'dry-run', 'Report what would change, but do not write to the database' );
 		$this->addOption( 'force', 'Rewrite rows even when the stored key is already correct' );
 		$this->addOption(
@@ -118,6 +127,7 @@ class RebuildSortKeys extends Maintenance {
 		}
 
 		$this->modes = $this->resolveModes();
+		$this->variants = $this->resolveVariants();
 		$since = $this->resolveSince();
 
 		$batchSize = $this->getBatchSize();
@@ -130,6 +140,10 @@ class RebuildSortKeys extends Maintenance {
 		$this->output( sprintf(
 			"Rebuilding mode(s): %s\n",
 			implode( ', ', array_keys( $this->modes ) )
+		) );
+		$this->output( sprintf(
+			"Building variant(s): %s\n",
+			implode( ', ', $this->variants )
 		) );
 		$this->output( sprintf(
 			'categorylinks rows with cl_from <= %d, batch size %d%s%s' . "\n",
@@ -183,6 +197,31 @@ class RebuildSortKeys extends Maintenance {
 		}
 
 		return true;
+	}
+
+	/**
+	 * The variants to rebuild: --variant if given, otherwise every configured one.
+	 *
+	 * @return string[]
+	 */
+	private function resolveVariants(): array {
+		$registry = $this->getServiceContainer()->get( 'CategoryMultisortNeue.VariantRegistry' );
+
+		$requested = $this->getOption( 'variant' );
+		if ( $requested !== null ) {
+			$requested = trim( (string)$requested );
+			$available = $registry->getVariants();
+			if ( !in_array( $requested, $available, true ) ) {
+				$this->fatalError( sprintf(
+					'Unknown or unconfigured variant "%s". Variants: %s',
+					$requested,
+					implode( ', ', $available )
+				) );
+			}
+			return [ $requested ];
+		}
+
+		return $registry->getVariants();
 	}
 
 	/**
@@ -350,11 +389,13 @@ class RebuildSortKeys extends Maintenance {
 		$toInsert = [];
 		$toClean = [];
 		foreach ( $expected as $from => $byTarget ) {
-			foreach ( $byTarget as $targetId => $keys ) {
+			foreach ( $byTarget as $targetId => $keysByMode ) {
 				$dirty = $this->force;
-				foreach ( $keys as $modeId => $key ) {
-					if ( ( $stored[$from][$targetId][$modeId] ?? null ) !== $key ) {
-						$dirty = true;
+				foreach ( $keysByMode as $modeId => $keysByVariant ) {
+					foreach ( $keysByVariant as $variant => $key ) {
+						if ( ( $stored[$from][$targetId][$modeId][$variant] ?? null ) !== $key ) {
+							$dirty = true;
+						}
 					}
 				}
 
@@ -365,13 +406,16 @@ class RebuildSortKeys extends Maintenance {
 
 				$stats['pairs']++;
 				$toClean[] = [ $from, $targetId ];
-				foreach ( $keys as $modeId => $key ) {
-					$toInsert[] = [
-						'cms_from' => $from,
-						'cms_target_id' => $targetId,
-						'cms_mode' => $modeId,
-						'cms_sortkey' => $key,
-					];
+				foreach ( $keysByMode as $modeId => $keysByVariant ) {
+					foreach ( $keysByVariant as $variant => $key ) {
+						$toInsert[] = [
+							'cms_from' => $from,
+							'cms_target_id' => $targetId,
+							'cms_mode' => $modeId,
+							'cms_variant' => $variant,
+							'cms_sortkey' => $key,
+						];
+					}
 				}
 			}
 		}
@@ -383,14 +427,13 @@ class RebuildSortKeys extends Maintenance {
 
 		// Delete-then-insert keeps the batch idempotent and removes rows whose
 		// mode was dropped from the configuration.  The DELETE is restricted to
-		// the exact (page, category) pairs and modes being rewritten, so rows
-		// belonging to pages outside the current batch stay untouched.
-		$modeIds = array_keys( $this->modes );
+		// the exact (page, category) pairs being rewritten, so rows belonging to
+		// pages outside the current batch stay untouched.
 		$this->beginTransactionRound( __METHOD__ );
 		foreach ( array_chunk( $toClean, self::DELETE_CHUNK ) as $chunk ) {
 			$this->dbw->newDeleteQueryBuilder()
 				->deleteFrom( self::TABLE )
-				->where( $this->tupleCondition( $chunk, $modeIds ) )
+				->where( $this->tupleCondition( $chunk ) )
 				->caller( __METHOD__ )
 				->execute();
 		}
@@ -415,6 +458,7 @@ class RebuildSortKeys extends Maintenance {
 		foreach ( $pairs as $from => $byTarget ) {
 			foreach ( $byTarget as $targetId => $info ) {
 				foreach ( $this->modes as $modeId => $mode ) {
+				 foreach ( $this->variants as $variant ) {
 					$prefix = self::resolvePrefix(
 						$perMode,
 						$from,
@@ -423,7 +467,7 @@ class RebuildSortKeys extends Maintenance {
 						$info['prefix']
 					);
 					try {
-						$key = $mode->getSortKey( $info['title'], $prefix );
+						$key = $mode->getSortKey( $info['title'], $prefix, $variant );
 					} catch ( Throwable $e ) {
 						$stats['errors']++;
 						$this->error( sprintf(
@@ -438,7 +482,8 @@ class RebuildSortKeys extends Maintenance {
 					if ( strlen( $key ) >= 230 ) {
 						$stats['capped']++;
 					}
-					$expected[$from][$targetId][$modeId] = $key;
+					$expected[$from][$targetId][$modeId][$variant] = $key;
+				 }
 				}
 			}
 		}
@@ -534,35 +579,40 @@ class RebuildSortKeys extends Maintenance {
 	private function fetchStoredKeys( array $fromIds ): array {
 		$stored = [];
 		$res = $this->dbr->newSelectQueryBuilder()
-			->select( [ 'cms_from', 'cms_target_id', 'cms_mode', 'cms_sortkey' ] )
+			->select( [ 'cms_from', 'cms_target_id', 'cms_mode', 'cms_variant', 'cms_sortkey' ] )
 			->from( self::TABLE )
 			->where( [
 				'cms_from' => $fromIds,
 				'cms_mode' => array_keys( $this->modes ),
+				'cms_variant' => $this->variants,
 			] )
 			->caller( __METHOD__ )
 			->fetchResultSet();
 
 		foreach ( $res as $row ) {
-			$stored[(int)$row->cms_from][(int)$row->cms_target_id][$row->cms_mode] = $row->cms_sortkey;
+			$stored[(int)$row->cms_from][(int)$row->cms_target_id]
+				[$row->cms_mode][$row->cms_variant] = $row->cms_sortkey;
 		}
 		return $stored;
 	}
 
 	/**
-	 * Build "((cms_from = 1 AND cms_target_id = 2 AND cms_mode IN ('a','b')) OR ...)".
+	 * Build "((cms_from = 1 AND cms_target_id = 2) OR ...)".
+	 *
+	 * Deliberately not restricted by mode or variant: the DELETE has to clear every
+	 * row of the pair so that modes and variants dropped from the configuration do
+	 * not linger. Modes and variants outside the current selection cannot collide,
+	 * because the INSERT that follows restores exactly the configured set.
 	 *
 	 * @param array<int,array{0:int,1:int}> $pairs
-	 * @param string[] $modeIds
 	 */
-	private function tupleCondition( array $pairs, array $modeIds ): string {
+	private function tupleCondition( array $pairs ): string {
 		$conds = [];
 		foreach ( $pairs as [ $from, $targetId ] ) {
 			$conds[] = $this->dbw->makeList(
 				[
 					'cms_from' => $from,
 					'cms_target_id' => $targetId,
-					'cms_mode' => $modeIds,
 				],
 				IDatabase::LIST_AND
 			);

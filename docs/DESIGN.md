@@ -281,61 +281,92 @@ per-mode magic words are for.
 The whole mechanism short-circuits on a wiki without variants: the canonical variant
 resolves to null and no conversion is attempted, so an ordinary wiki pays nothing.
 
-### What folding actually costs
+### Why the difference is real
 
-Folding is not order-preserving, and it is worth being precise about what it gives up.
-Measured with PHP's `Collator` at every strength, the two members of a variant pair are
-distinct at **PRIMARY** strength in every Chinese collation — `体` is `a10d16` and
-`體` is `a3d436` under `zh@collation=unihan`. They are not the same character with a
-tie-breaker: ICU genuinely places them in different positions.
+An earlier revision of this branch folded every variant to one canonical form so that a
+single sort key per member would be enough. That was the wrong goal: a reader who
+switches variant is *supposed* to see a different order, and `convertCategoryKey()`
+exists precisely to make keys **not** vary. One measurement is what settled it.
 
-So there are two defensible orderings and they cannot both be had:
+Variant pairs differ at **PRIMARY** collation strength in every Chinese collation.
+Measured with PHP's `Collator`: `体` is `a10d16` and `體` is `a3d436` under
+`zh@collation=unihan`. They are not the same character with a tie-breaker — ICU places
+them in genuinely different positions, because they are different characters with
+different shapes and sometimes different readings. So there is no "correct" single
+order to fold towards, and the reader's variant is the only sensible thing to order by.
 
-| | shape-based modes | sound-based modes |
-| --- | --- | --- |
-| **Per-variant order** | each variant follows its own radical and stroke count; `体` sorts as 人部 7 画, `體` as 骨部 23 画 | each variant follows its own reading; `发`/`發` are both *fā*, but `发`/`髮` are *fā*/*fà* |
-| **One shared order** (folding) | both members sort where the canonical variant belongs | both members sort where the canonical variant is read |
+### One sort key per variant
 
-Folding chooses the second. It is the right default because a **category is a shared,
-stored index**: the sort key lives in one row per member, and the order cannot differ
-per reader without either storing one key per variant or re-sorting at read time.
-Folding also keeps paging, the grouping headings and the member list consistent with
-each other, and makes the order reproducible.
+The table carries a `cms_variant` column, and a key is stored for every
+(member, category, mode, variant) combination that the wiki configures. A reader is
+served the key for their own variant.
 
-The price is real, and it is the price of any single ordering: a traditional-only
-reader looking for `體` finds it where `体` belongs. Note that **core has this problem
-too, and does not solve it** — `parserOutput->getTitleText()` is variant-converted, but
-category member lists are built from the database and show the raw title for everyone.
-`CategoryViewer` in core and this extension's viewer render identical, unconverted
-member titles for every variant.
-
-If a wiki would rather have per-variant order, the shape is: store one key per
-(member, category, mode, variant), rebuild on variant change, and make the category
-query join on the reader's preferred variant. That is a much larger change — the table
-grows by the number of variants, and `checkSortKeys` has to validate each — and it
-would need the per-page `convertSplitTitle()` result, which is only available where the
-parser output is, i.e. in `LinksUpdateComplete` and not in a maintenance rebuild from
-`categorylinks` alone.
-
-### Where the reader's variant is already available
-
-MediaWiki computes the variant-converted title once per parse and stores it, so an
-extension should read that rather than call the converter again:
+The variant text comes from the converter's own title API rather than a second guess at
+which characters to convert:
 
 | API | Variant-correct? | Notes |
 | --- | --- | --- |
-| `ParserOutput::getTitleText()` | yes | set during parse; honours `-{T\|}-` first, otherwise `convertSplitTitle()`. The right source when parser output is at hand, which is `LinksUpdateComplete`. |
-| `LanguageConverter::convertSplitTitle( $title )` | yes | returns namespace / separator / main text converted for the current preferred variant |
+| `ParserOutput::getTitleText()` | yes | set during parse; honours `-{T\|}-` first, otherwise `convertSplitTitle()`. Authoritative, but only where parser output exists. |
+| `LanguageConverter::convertSplitTitle( $title, $variant )` | yes | namespace / separator / main text for an explicit variant. Works anywhere, including a maintenance rebuild. |
 | `LanguageConverter::getConvRuleTitle()` | yes | the `-{T\|}-` value, or `false`. Only meaningful on a converter that has parsed the page. |
-| `LanguageConverter::convertTitle( $title )` | **no** | returns the title unchanged in the cases measured; do not rely on it |
+| `LanguageConverter::convertTitle( $title )` | only with a variant | without a variant argument it consults the request context, which a maintenance script does not have — this is what made it look like a no-op |
 | `Title::getText()` / `getDBkey()` | no, by design | the stored title, which is what the category query needs |
 
-The extension currently folds the raw title text with `autoConvert()`, which is correct
-for the sort key but is a second conversion rather than the parser's authoritative one.
-Deriving from `getTitleText()` / `convertSplitTitle()` would additionally pick up pages
-whose title is reshaped by in-page conversion rules or a `-{T|}-` override. That matters
-only for such pages, and it needs the parser output, so it belongs in
-`LinksUpdateComplete` and not in `rebuildSortKeys`.
+Measured, `convertSplitTitle()` handles the mixed state correctly and agrees with the
+converter's tables:
+
+```
+體          zh => 體   zh-hans => 体   zh-hant => 體
+体          zh => 体   zh-hans => 体   zh-hant => 體
+繁體標題    zh => 繁體標題  zh-hans => 繁体标题  zh-hant => 繁體標題
+转换标题测试 zh => 转换标题测试 zh-hans => 转换标题测试 zh-hant => 轉換標題測試
+```
+
+**`zh` is the un-converted state**, and that is the default variant. It is not "no
+variant": it is the wiki's own "原文" variant, and it is what a reader sees when they
+have chosen not to convert. Every page measured returns its own title unchanged under
+it, so a `zh` key is the order of the text exactly as written — which is the right
+default for a wiki that mixes variants and for the many readers who browse without
+conversion.
+
+The grouping letter is derived from the same per-variant text, so it changes with the
+variant too, as it must in order to stay consistent with the order:
+
+```
+体  zh => 体 ⠇   zh-hans => 体 ⠇   zh-hant => 體 ⠗
+万  zh => 万 ⠃   zh-hans => 万 ⠃   zh-hant => 萬 ⠍
+```
+
+A reader whose preferred variant has no stored keys falls back to the default variant,
+so a wiki that configures only some variants still works.
+
+### Paging across variants
+
+Per-variant keys change what paging has to do, and two bugs only become reachable once
+variant twins exist.
+
+**Cursors carry the tiebreaker.** Members sort by `(cms_sortkey, cms_from)`, so a sort
+key alone does not identify a row. Variant twins share a sort key — 12 tie groups in
+`zh-hans` against 0 in `zh` — so a cursor naming only the key served the first twin
+again on the next page. The cursor is now `[4-byte key length][key][8-byte page id]`,
+base64url encoded, with the page id as the tiebreaker, and the cursor is exclusive.
+
+**Section links must not inherit each other's cursors.** `$query` arrives from the
+request and is restated into each section's links. It carries `cmspagefrom`, which then
+landed in the *subcategory* section's links as well. Following a subcategory link threw
+the page section back to its previous cursor and the same page of members was served
+twice. Every paging parameter is now dropped from `$query` on the way in; each section
+builds its own.
+
+**Forward paging is verified** over HTTP for four variants and two modes: 11-12 pages
+each, `dupes=0 missing=0 extra=0` against a single-page baseline, and the chain stops on
+the real last page instead of emitting one empty page past it.
+
+**Backward paging is not yet correct.** Rows arrive in descending order when the request
+carries an `until` cursor, and the current code walks back only two pages before
+stopping. The link parameters are swapped for that case, but the chain is still short.
+This is a known gap: forward paging, which is what a reader normally uses, is verified,
+and the acceptance suite's paging check passes because it walks forward.
 
 ### Readings that cannot be derived
 

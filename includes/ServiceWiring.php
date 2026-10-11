@@ -10,7 +10,7 @@ use MediaWiki\Extension\CategoryMultisortNeue\CategoryMultisortNeueConfig;
 use MediaWiki\Extension\CategoryMultisortNeue\SortKeyStore;
 use MediaWiki\Extension\CategoryMultisortNeue\SortModeRegistry;
 use MediaWiki\Extension\CategoryMultisortNeue\SortModeSelector;
-use MediaWiki\Extension\CategoryMultisortNeue\VariantFolder;
+use MediaWiki\Extension\CategoryMultisortNeue\VariantRegistry;
 use MediaWiki\MediaWikiServices;
 
 return [
@@ -18,10 +18,10 @@ return [
 		return new CategoryMultisortNeueConfig( $services->getMainConfig() );
 	},
 
-	'CategoryMultisortNeue.VariantFolder' => static function ( MediaWikiServices $services ) {
-		return new VariantFolder(
-			$services->getLanguageConverterFactory(),
+	'CategoryMultisortNeue.VariantRegistry' => static function ( MediaWikiServices $services ) {
+		return new VariantRegistry(
 			$services->get( 'CategoryMultisortNeue.Config' ),
+			$services->getLanguageConverterFactory(),
 			$services->getContentLanguage()
 		);
 	},
@@ -30,14 +30,15 @@ return [
 		return new SortModeRegistry(
 			$services->get( 'CategoryMultisortNeue.Config' ),
 			$services->getCollationFactory(),
-			$services->get( 'CategoryMultisortNeue.VariantFolder' )
+			$services->get( 'CategoryMultisortNeue.VariantRegistry' )
 		);
 	},
 
 	'CategoryMultisortNeue.SortKeyStore' => static function ( MediaWikiServices $services ) {
 		return new SortKeyStore(
 			$services->get( 'CategoryMultisortNeue.SortModeRegistry' ),
-			$services->getConnectionProvider()
+			$services->getConnectionProvider(),
+			$services->get( 'CategoryMultisortNeue.VariantRegistry' )
 		);
 	},
 

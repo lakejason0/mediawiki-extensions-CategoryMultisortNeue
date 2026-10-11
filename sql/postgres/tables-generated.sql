@@ -6,12 +6,15 @@ CREATE TABLE categorylinks_multisort (
   cms_from INT NOT NULL,
   cms_target_id BIGINT NOT NULL,
   cms_mode TEXT NOT NULL,
+  cms_variant TEXT DEFAULT 'zh' NOT NULL,
   cms_sortkey BYTEA NOT NULL,
-  PRIMARY KEY(cms_from, cms_target_id, cms_mode)
+  PRIMARY KEY(cms_from, cms_target_id, cms_mode, cms_variant)
 );
 
 CREATE INDEX cms_target_mode_sortkey ON categorylinks_multisort (
-  cms_target_id, cms_mode, cms_sortkey, cms_from
+  cms_target_id, cms_mode, cms_variant, cms_sortkey, cms_from
 );
 
 CREATE INDEX cms_mode ON categorylinks_multisort (cms_mode);
+
+CREATE INDEX cms_variant ON categorylinks_multisort (cms_variant);

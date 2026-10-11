@@ -113,18 +113,31 @@ class CategoryMultisortNeueConfig {
 	}
 
 	/**
-	 * Whether sort keys are folded to one canonical writing-system variant.
+	 * Whether sort keys are stored per language variant, so that a reader's chosen
+	 * variant produces a different category order.
 	 */
-	public function foldVariants(): bool {
-		return (bool)$this->config->get( 'CategoryMultisortNeueFoldVariants' );
+	public function perVariantSortKeys(): bool {
+		return (bool)$this->config->get( 'CategoryMultisortNeuePerVariantSortKeys' );
 	}
 
 	/**
-	 * The variant to fold to, or '' to let VariantFolder decide.
+	 * Variants to build sort keys for, or [] for all of the language's variants.
+	 *
+	 * @return string[]
 	 */
-	public function getCanonicalVariant(): string {
-		$value = $this->config->get( 'CategoryMultisortNeueCanonicalVariant' );
-		return is_string( $value ) ? trim( $value ) : '';
+	public function getVariants(): array {
+		$value = $this->config->get( 'CategoryMultisortNeueVariants' );
+		if ( !is_array( $value ) ) {
+			return [];
+		}
+
+		$variants = [];
+		foreach ( $value as $variant ) {
+			if ( is_string( $variant ) && trim( $variant ) !== '' ) {
+				$variants[] = trim( $variant );
+			}
+		}
+		return $variants;
 	}
 
 	/**
