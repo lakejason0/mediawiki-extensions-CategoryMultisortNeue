@@ -1,5 +1,5 @@
 {
-	"name": "lakeus/category-multisort-neue",
+	"name": "lakejason0/category-multisort-neue",
 	"description": "Lets readers view one MediaWiki category page under several different collations while the wiki keeps a single $wgCategoryCollation.",
 	"type": "mediawiki-extension",
 	"keywords": [
@@ -13,9 +13,9 @@
 		"stroke"
 	],
 	"license": "GPL-2.0-or-later",
-	"homepage": "https://github.com/Lakeus/CategoryMultisortNeue",
+	"homepage": "https://github.com/lakejason0/mediawiki-extensions-CategoryMultisortNeue",
 	"support": {
-		"issues": "https://github.com/Lakeus/CategoryMultisortNeue/issues"
+		"issues": "https://github.com/lakejason0/mediawiki-extensions-CategoryMultisortNeue/issues"
 	},
 	"require": {
 		"php": ">=8.3",

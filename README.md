@@ -19,6 +19,7 @@ preferences.
 | **MediaWiki** | 1.46.0 (developed and tested against 1.46.0; see [Compatibility](#compatibility)) |
 | **Database** | MySQL/MariaDB, SQLite, PostgreSQL (uses MediaWiki's abstract schema) |
 | **Licence** | [GPL-2.0-or-later](COPYING) |
+| **Repository** | <https://github.com/lakejason0/mediawiki-extensions-CategoryMultisortNeue> |
 | **Status** | Working; verified end to end on a 1.46.0 wiki with four collations |
 
 > The extension is not registered on mediawiki.org yet. To add it there, create
@@ -50,7 +51,9 @@ preferences.
 - [Troubleshooting](#troubleshooting)
 - [Compatibility](#compatibility)
 - [Development](#development)
-- [Publishing](#publishing)
+- [Repository layout](#repository-layout)
+- [Continuous integration](#continuous-integration)
+- [Contributing](#contributing)
 
 ---
 
@@ -598,34 +601,41 @@ because the table, the collations and the skin integration all need a real wiki;
 checks that were run against it, and the reasoning behind the less obvious design
 decisions, are written up in [`docs/DESIGN.md`](docs/DESIGN.md).
 
-## Publishing
+## Repository layout
 
-This repository is ready to be pushed to GitHub as-is: `README.md`, `COPYING`
-(GPL-2.0), `composer.json`, `.gitignore`, `.gitattributes`, `CONTRIBUTING.md` and a
-`CI` workflow that lints PHP and JavaScript, validates every JSON file, and checks that
-each message in `i18n/en.json` is documented in `i18n/qqq.json`.
-
-To publish:
-
-```bash
-cd extensions/CategoryMultisortNeue
-
-# 1. Create an empty repository named CategoryMultisortNeue on GitHub
-#    (https://github.com/new — do not initialise it with a README).
-
-# 2. Point this checkout at it and push
-git remote add origin https://github.com/<you>/CategoryMultisortNeue.git
-git push -u origin main
+```
+extension.json                  registration, configuration, hooks, modules
+includes/                       PSR-4 classes
+sql/                            abstract schema plus generated per-DBMS SQL
+i18n/                           messages, documentation, magic words
+modules/                        ResourceLoader module for the portlet
+maintenance/                    rebuildSortKeys, checkSortKeys, deleteSortKeys
+docs/DESIGN.md                  design notes and the traps that shaped them
+.github/workflows/ci.yml        lint, JSON validity, message documentation, links
 ```
 
-`git review` is configured (`.gitreview`) if you would rather submit patches to
-Wikimedia Gerrit as `mediawiki/extensions/CategoryMultisortNeue`.
+## Continuous integration
 
-Once pushed, listing the extension on mediawiki.org means creating
-`Extension:CategoryMultisortNeue` with the standard `{{Extension}}` infobox pointing
-at the repository and at `Special:PrefixIndex/Extension:CategoryMultisortNeue:` for
-its documentation subpages. Registration there is not required for the extension to
-work, and nothing in the code depends on it.
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request:
+
+| Step | What it checks |
+| --- | --- |
+| PHP syntax | `php -l` on every `.php` file, on PHP 8.3 and 8.4 |
+| JavaScript syntax | `node --check` on the portlet module |
+| JSON validity | `extension.json`, `composer.json`, `i18n/*.json`, `sql/*.json` |
+| Message keys are documented | every key in `i18n/en.json` exists in `i18n/qqq.json`, and vice versa |
+| Documentation links resolve | relative links in `README.md`, `CONTRIBUTING.md`, `docs/DESIGN.md` |
+
+The PHP steps are written as self-contained `php -r` snippets that glob their own file
+lists, rather than taking arguments. In a workflow `run:` block GitHub Actions expands
+`$identifiers` before bash sees the command, so a snippet that reads `$argv[1]` is
+substituted with nothing and fails with a confusing error; the comment in the workflow
+records this so it is not reintroduced.
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md). Patches are welcome as GitHub pull requests,
+or via Wikimedia Gerrit (`git review`, configured in `.gitreview`).
 
 ## Licence
 

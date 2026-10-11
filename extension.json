@@ -5,7 +5,7 @@
 		"Lakeus"
 	],
 	"version": "1.0.0",
-	"url": "https://github.com/Lakeus/CategoryMultisortNeue",
+	"url": "https://github.com/lakejason0/mediawiki-extensions-CategoryMultisortNeue",
 	"description": "Allows readers to view one category page under several different collations (for example pinyin, zhuyin and stroke for Chinese) while the wiki keeps a single $wgCategoryCollation.",
 	"license-name": "GPL-2.0-or-later",
 	"requires": {
