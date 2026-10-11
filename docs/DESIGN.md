@@ -12,6 +12,7 @@ here rather than left in commit messages.
 - [Integration points](#integration-points)
 - [The control belongs to the skin](#the-control-belongs-to-the-skin)
 - [Magic words and sort key precedence](#magic-words-and-sort-key-precedence)
+- [Writing-system variants](#writing-system-variants)
 - [Schema registration](#schema-registration)
 - [Gotchas worth remembering](#gotchas-worth-remembering)
 
@@ -224,6 +225,62 @@ precedence as `LinksUpdateComplete`. Without that, a full rebuild would overwrit
 per-mode key that a magic word had set, and `checkSortKeys` would report mismatches
 against its own idea of the key.
 
+## Writing-system variants
+
+A wiki whose language has variants — Chinese above all — can serve one body of text in
+several writing systems, and readers choose which. Category pages do not follow that
+choice, and with shape-based collations the result is unusable as an index: `体` and
+`體` are the same word but 7 and 23 strokes, so stroke order scatters them.
+
+Measured on a category of 12 variant pairs, stroke mode: **0 of 12 pairs adjacent**,
+with pairs as far apart as positions 6 and 45 out of 57. After folding, 12 of 12 are
+adjacent, all 12 share a grouping heading, and the order is identical for every
+variant a reader can select.
+
+The fix is to fold both halves of the sort key input — the title text and the
+`cl_sortkey_prefix` — to one canonical variant before the collation sees them.
+`VariantFolder` owns that.
+
+Three things about MediaWiki made this less obvious than it looks:
+
+1. **`convertCategoryKey()` cannot be used, despite its name and its documentation.**
+   `ILanguageConverter::convertCategoryKey()` says it "should make different keys that
+   are variants of each other map to the same key", and for Chinese it is implemented
+   as `autoConvert( $key, 'zh' )`. But `zh` is a base language code, not a conversion
+   target: `autoConvert( '体體', 'zh' )` returns `体體` unchanged. Measured over 15
+   variant pairs, `convertCategoryKey()` collapses **zero** of them. An explicit
+   variant is required.
+
+2. **The canonical variant must be a conversion *target*, not merely a valid variant.**
+   `zh` is in `ZhConverter::getVariants()` and `validateVariant( 'zh' )` accepts it, so
+   the first implementation resolved the canonical variant to `zh` and silently folded
+   nothing. The reliable signal is `getVariantsFallbacks()`, which maps each variant to
+   the variants it can fall back to: a variant appearing only as a *key* cannot be
+   converted to. `ZhConverter::getAdditionalManualLevel()` marks `zh` as `'disable'`
+   for the same reason.
+
+3. **The conversion tables are not symmetric.** Folding towards simplified collapses
+   all 15 pairs measured; folding towards traditional collapses only 13, because
+   `里/裡` and `台/臺` do not merge in that direction. So `zh-hans` is the fallback
+   rather than `zh-hant`, and the site's own variant wins when it is a concrete one.
+
+Two consequences worth stating:
+
+- **Grouping letters have to be folded as well.** Otherwise a page can be sorted next
+  to its variant twin but filed under a different heading, which is worse than either
+  failure on its own.
+- **Folding makes the order variant-independent**, which is the actual goal: a category
+  is a shared index, not a per-reader view. If the order changed with the reader's
+  variant, the same category would page differently for different readers.
+
+Pinyin and zhuyin keep variant pairs together already, because they sort by sound
+rather than shape, and they still cannot merge them: `发`/`發` are genuinely different
+readings, and MediaWiki has no mechanism to declare a page's reading. That is what the
+per-mode magic words are for.
+
+The whole mechanism short-circuits on a wiki without variants: the canonical variant
+resolves to null and no conversion is attempted, so an ordinary wiki pays nothing.
+
 ## Schema registration
 
 The table is declared once, in `sql/categorylinks_multisort.json`, and the per-DBMS SQL
@@ -283,3 +340,9 @@ Collected here because each one cost real debugging time.
    anything until `maintenance/updateCollation.php` runs. The same is true of this
    extension's modes: after editing `$wgCategoryMultisortNeueModes`, run
    `rebuildSortKeys`.
+
+8. **Anything that changes how a sort key is computed needs a rebuild, and there is no
+   way to detect a stale key.** `checkSortKeys` recomputes with the current settings,
+   so after enabling variant folding it reports every existing key as a mismatch until
+   `rebuildSortKeys` runs. That is the correct behaviour — the keys really are stale —
+   but it means the setting cannot be switched on quietly in a release.
