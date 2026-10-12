@@ -467,29 +467,47 @@ class CheckSortKeys extends Maintenance {
 			$this->output( "No orphan rows.\n" );
 		}
 
-		// Stale: rows for a mode that is not in the configuration any more.
+		// Stale: rows for a mode or a variant that is not in the configuration any more.
+		//
+		// Variants have to be checked as well as modes, and for the same reason: a row
+		// stored for an unconfigured variant is not a wrong key, it is a key for an
+		// ordering this wiki no longer serves. Comparing it against the configured
+		// variant's key would report every such row as a mismatch, which is what a rebuild
+		// under a different setting leaves behind.
 		$configuredIds = array_keys( $registry->getModes() );
+		$configuredVariants = $this->variants;
 		$staleCounts = [];
 		$res = $this->dbr->newSelectQueryBuilder()
-			->select( [ 'cms_mode', 'cnt' => 'COUNT(*)' ] )
+			->select( [ 'cms_mode', 'cms_variant', 'cnt' => 'COUNT(*)' ] )
 			->from( self::TABLE )
-			->groupBy( 'cms_mode' )
+			->groupBy( [ 'cms_mode', 'cms_variant' ] )
 			->caller( __METHOD__ )
 			->fetchResultSet();
 		foreach ( $res as $row ) {
-			if ( !in_array( $row->cms_mode, $configuredIds, true ) ) {
-				$staleCounts[$row->cms_mode] = (int)$row->cnt;
-				$this->stale += (int)$row->cnt;
+			$modeKnown = in_array( $row->cms_mode, $configuredIds, true );
+			$variantKnown = in_array( $row->cms_variant, $configuredVariants, true );
+			if ( $modeKnown && $variantKnown ) {
+				continue;
 			}
+			$reason = $modeKnown ? 'variant' : 'mode';
+			$staleCounts[] = [
+				'mode' => $row->cms_mode,
+				'variant' => $row->cms_variant,
+				'reason' => $reason,
+				'count' => (int)$row->cnt,
+			];
+			$this->stale += (int)$row->cnt;
 		}
 
 		if ( $this->stale > 0 ) {
-			$this->output( "Stale rows (mode no longer configured):\n" );
-			foreach ( $staleCounts as $modeId => $count ) {
+			$this->output( "Stale rows (mode or variant no longer configured):\n" );
+			foreach ( $staleCounts as $entry ) {
 				$this->output( sprintf(
-					"  mode %-12s %d row(s); clean up with deleteSortKeys.php\n",
-					$modeId,
-					$count
+					"  mode %-12s variant %-10s %d row(s), stale %s; clean up with deleteSortKeys.php\n",
+					$entry['mode'],
+					$entry['variant'],
+					$entry['count'],
+					$entry['reason']
 				) );
 			}
 		} else {

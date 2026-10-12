@@ -6,7 +6,7 @@ CREATE TABLE /*_*/categorylinks_multisort (
   cms_from INTEGER UNSIGNED NOT NULL,
   cms_target_id BIGINT UNSIGNED NOT NULL,
   cms_mode BLOB NOT NULL,
-  cms_variant BLOB DEFAULT 'zh' NOT NULL,
+  cms_variant BLOB NOT NULL,
   cms_sortkey BLOB NOT NULL,
   PRIMARY KEY(cms_from, cms_target_id, cms_mode, cms_variant)
 );

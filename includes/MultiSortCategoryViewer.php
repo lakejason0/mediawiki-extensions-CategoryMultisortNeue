@@ -598,7 +598,7 @@ class MultiSortCategoryViewer extends CategoryViewer {
 							"$mixedAlias.cms_from = cl_from",
 							"$mixedAlias.cms_target_id = cl_target_id",
 							"$mixedAlias.cms_mode" => $this->mode->id,
-							"$mixedAlias.cms_variant" => VariantRegistry::MIXED_VARIANT,
+							"$mixedAlias.cms_variant" => $this->variants->getMixedVariant(),
 						]
 					)
 					// A member with neither row has no key in this mode at all, so it is

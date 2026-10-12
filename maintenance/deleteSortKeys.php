@@ -61,18 +61,21 @@ class DeleteSortKeys extends Maintenance {
 	/** @var string[] Configured mode ids, used to detect stale rows. */
 	private array $configuredModes = [];
 
+	/** @var string[] Configured variants, used to detect stale rows. */
+	private array $configuredVariants = [];
+
 	public function __construct() {
 		parent::__construct();
 
 		$this->addDescription(
 			'Delete categorylinks_multisort rows whose categorylinks row is gone, or ' .
-			'whose sort mode is no longer configured.'
+			'whose sort mode or language variant is no longer configured.'
 		);
 
 		$this->addOption( 'dry-run', 'Only count the rows that would be deleted' );
 		$this->addOption( 'mode', 'Restrict the cleanup to this mode id', false, true );
-		$this->addOption( 'orphans-only', 'Do not look for rows of modes that are no longer configured' );
-		$this->addOption( 'stale-modes-only', 'Only look for rows of modes that are no longer configured' );
+		$this->addOption( 'orphans-only', 'Do not look for rows of modes or variants that are no longer configured' );
+		$this->addOption( 'stale-modes-only', 'Only look for rows of modes or variants that are no longer configured' );
 		$this->addOption( 'limit', 'Stop after deleting this many rows (default: no limit)', false, true );
 
 		$this->setBatchSize( 500 );
@@ -92,6 +95,9 @@ class DeleteSortKeys extends Maintenance {
 
 		$registry = $this->getRegistry();
 		$this->configuredModes = array_keys( $registry->getModes() );
+		/** @var VariantRegistry $variantRegistry */
+		$variantRegistry = $this->getServiceContainer()->get( 'CategoryMultisortNeue.VariantRegistry' );
+		$this->configuredVariants = $variantRegistry->getVariants();
 
 		$modeFilter = $this->getOption( 'mode' );
 		if ( $modeFilter !== null && !in_array( (string)$modeFilter, $this->configuredModes, true ) ) {
@@ -216,34 +222,52 @@ class DeleteSortKeys extends Maintenance {
 	}
 
 	/**
-	 * Delete every row whose mode is not configured any more.
+	 * Delete every row whose mode or language variant is not configured any more.
+	 *
+	 * Variants are checked as well as modes because both are part of what the wiki
+	 * serves: a rebuild under a different language or variant list leaves rows that no
+	 * reader can be served, and `checkSortKeys` reports them as stale rather than as
+	 * wrong keys.
 	 *
 	 * @param array<string,bool> &$seen Collects "from|target|mode" keys.
 	 */
 	private function deleteStaleModes( ?string $modeFilter, int $limit, array &$seen ): void {
-		$known = $this->configuredModes;
+		$knownModes = $this->configuredModes;
+		$knownVariants = $this->configuredVariants;
 		$modeFilter = $modeFilter ?? '';
 
 		$res = $this->dbr->newSelectQueryBuilder()
-			->select( [ 'cms_mode', 'cnt' => 'COUNT(*)' ] )
+			->select( [ 'cms_mode', 'cms_variant', 'cnt' => 'COUNT(*)' ] )
 			->from( self::TABLE )
-			->groupBy( 'cms_mode' )
+			->groupBy( [ 'cms_mode', 'cms_variant' ] )
 			->caller( __METHOD__ )
 			->fetchResultSet();
 
 		$staleModes = [];
+		$staleVariants = [];
 		foreach ( $res as $row ) {
-			if ( in_array( $row->cms_mode, $known, true ) ) {
-				continue;
-			}
 			if ( $modeFilter !== '' && $row->cms_mode !== $modeFilter ) {
 				continue;
 			}
-			$staleModes[$row->cms_mode] = (int)$row->cnt;
+			$modeKnown = in_array( $row->cms_mode, $knownModes, true );
+			$variantKnown = in_array( $row->cms_variant, $knownVariants, true );
+			if ( $variantKnown && $modeKnown ) {
+				continue;
+			}
+			if ( !$modeKnown ) {
+				$staleModes[$row->cms_mode] = ( $staleModes[$row->cms_mode] ?? 0 ) + (int)$row->cnt;
+				continue;
+			}
+			$key = $row->cms_mode . '|' . $row->cms_variant;
+			$staleVariants[$key] = [
+				'mode' => $row->cms_mode,
+				'variant' => $row->cms_variant,
+				'count' => (int)$row->cnt,
+			];
 		}
 
-		if ( $staleModes === [] ) {
-			$this->output( "  no stale-mode rows\n" );
+		if ( $staleModes === [] && $staleVariants === [] ) {
+			$this->output( "  no stale-mode rows\n  no stale-variant rows\n" );
 			return;
 		}
 
@@ -271,6 +295,98 @@ class DeleteSortKeys extends Maintenance {
 			$this->deleteModeRows( $modeId, $limit > 0 ? $limit - $total : 0, $seen );
 			$total += $count;
 		}
+
+		foreach ( $staleVariants as $entry ) {
+			$this->output( sprintf(
+				"  mode %s variant %s: %d row(s) of an unconfigured variant\n",
+				$entry['mode'],
+				$entry['variant'],
+				$entry['count']
+			) );
+			if ( $this->dryRun ) {
+				$rows = $this->dbw->newSelectQueryBuilder()
+					->select( [ 'cms_from', 'cms_target_id' ] )
+					->from( self::TABLE )
+					->where( [ 'cms_mode' => $entry['mode'], 'cms_variant' => $entry['variant'] ] )
+					->limit( $entry['count'] )
+					->caller( __METHOD__ )
+					->fetchResultSet();
+				foreach ( $rows as $row ) {
+					$seen[
+						(int)$row->cms_from . '|' . (int)$row->cms_target_id
+						. '|' . $entry['mode'] . '|' . $entry['variant']
+					] = true;
+				}
+				$total += $entry['count'];
+				continue;
+			}
+			$total += $this->deleteVariantRows(
+				$entry['mode'],
+				$entry['variant'],
+				$limit > 0 ? $limit - $total : 0,
+				$seen
+			);
+		}
+	}
+
+	/**
+	 * Delete every row of one (mode, variant), batched on (cms_from, cms_target_id).
+	 */
+	private function deleteVariantRows( string $modeId, string $variant, int $limit, array &$seen ): int {
+		$batchSize = $this->getBatchSize();
+		$total = 0;
+
+		while ( true ) {
+			$take = $batchSize;
+			if ( $limit > 0 ) {
+				$take = min( $take, $limit - $total );
+			}
+			if ( $take <= 0 ) {
+				break;
+			}
+
+			$rows = $this->dbw->newSelectQueryBuilder()
+				->select( [ 'cms_from', 'cms_target_id' ] )
+				->from( self::TABLE )
+				->where( [ 'cms_mode' => $modeId, 'cms_variant' => $variant ] )
+				->orderBy( [ 'cms_from', 'cms_target_id' ] )
+				->limit( $take )
+				->caller( __METHOD__ )
+				->fetchResultSet();
+
+			$rows = iterator_to_array( $rows );
+			if ( $rows === [] ) {
+				break;
+			}
+
+			$conds = [];
+			foreach ( $rows as $row ) {
+				$conds[] = $this->dbw->expr( 'cms_from', '=', (int)$row->cms_from )
+					->and( 'cms_target_id', '=', (int)$row->cms_target_id );
+				$seen[
+					(int)$row->cms_from . '|' . (int)$row->cms_target_id . "|$modeId|$variant"
+				] = true;
+			}
+
+			$this->beginTransactionRound( __METHOD__ );
+			$this->dbw->newDeleteQueryBuilder()
+				->deleteFrom( self::TABLE )
+				->where( [
+					'cms_mode' => $modeId,
+					'cms_variant' => $variant,
+				] )
+				->andWhere( $this->dbw->makeList( $conds, IDatabase::LIST_OR ) )
+				->caller( __METHOD__ )
+				->execute();
+			$this->commitTransactionRound( __METHOD__ );
+
+			$total += count( $rows );
+			if ( count( $rows ) < $take ) {
+				break;
+			}
+		}
+
+		return $total;
 	}
 
 	/**

@@ -37,19 +37,19 @@ use MediaWiki\WikiMap\WikiMap;
  *
  * The mixed variant
  * -----------------
- * 'zh' is not "no variant": it is the wiki's own un-converted variant, the one a
- * reader gets when they have chosen not to convert. convertSplitTitle() returns every
- * title unchanged under it, so a 'zh' key is the order of the text exactly as written.
+ * The mixed variant is the wiki's own language code. It is not "no variant": it is the
+ * un-converted state, the one a reader gets when they have chosen not to convert. For a
+ * `zh` wiki that is `zh`, and convertSplitTitle() returns every title unchanged under
+ * it, so a `zh` key is the order of the text exactly as written. For a wiki whose
+ * language is already a concrete variant, such as `$wgLanguageCode = 'zh-hans'`, it is
+ * `zh-hans`, which is the same un-converted state rather than a conversion.
+ *
  * It is the default and always the fallback, because a wiki that mixes writing systems
- * needs one order that reflects what is actually there.
+ * needs one order that reflects what is actually there, and because every wiki has
+ * exactly one language code. Taking it from the language rather than hard-coding it
+ * keeps a wiki with no variants honest: a `de` wiki stores `de`, not a Chinese code.
  */
 class VariantRegistry {
-
-	/**
-	 * The mixed / un-converted state, used when no variant applies and as the fallback
-	 * when a reader's variant has no stored keys.
-	 */
-	public const MIXED_VARIANT = 'zh';
 
 	/** Longest variant code accepted. Must fit categorylinks_multisort.cms_variant. */
 	public const MAX_VARIANT_LENGTH = 32;
@@ -60,6 +60,8 @@ class VariantRegistry {
 	private ?array $variants = null;
 
 	private ?string $readerVariant = null;
+
+	private ?string $mixedVariant = null;
 
 	/**
 	 * @param CategoryMultisortNeueConfig $config
@@ -78,6 +80,26 @@ class VariantRegistry {
 			$this->converter = $this->converterFactory->getLanguageConverter( $this->contentLanguage );
 		}
 		return $this->converter;
+	}
+
+	/**
+	 * The mixed / un-converted variant: the wiki's own language code, in the spelling
+	 * the converter uses for variant codes.
+	 *
+	 * Used when no variant applies and as the fallback when a reader's variant has no
+	 * stored keys. Every wiki has exactly one language code, which is what makes this a
+	 * usable fallback row; on a wiki without variants it is the only variant stored.
+	 *
+	 * Language::getCode() lower-cases its parts, so a `zh-hant` wiki reports `zh-hant`
+	 * while the converter lists the same variant as `zh-Hant`. Comparing those two forms
+	 * directly would treat one variant as two and store it twice, so the code is put
+	 * through the converter's own normalisation first.
+	 */
+	public function getMixedVariant(): string {
+		return $this->mixedVariant ??= (
+			$this->getConverter()->validateVariant( $this->contentLanguage->getCode() )
+			?? $this->contentLanguage->getCode()
+		);
 	}
 
 	/**
@@ -103,7 +125,7 @@ class VariantRegistry {
 		if ( !$converter->hasVariants() || !$this->config->perVariantSortKeys() ) {
 			// A wiki without variants, or one that deliberately keeps a single order:
 			// one set of keys, in the mixed state.
-			return $this->variants = [ self::MIXED_VARIANT ];
+			return $this->variants = [ $this->getMixedVariant() ];
 		}
 
 		$configured = $this->config->getVariants();
@@ -132,7 +154,7 @@ class VariantRegistry {
 
 		// The mixed variant must always be present: it is the fallback, and it is what
 		// readers who have not chosen a variant are served.
-		$variants[self::MIXED_VARIANT] = true;
+		$variants[$this->getMixedVariant()] = true;
 
 		return $this->variants = array_keys( $variants );
 	}
@@ -147,7 +169,7 @@ class VariantRegistry {
 		// variant that an earlier revision needed, the mixed variant *is* accepted here:
 		// this is about which orderings to store, not about conversion targets.
 		$converter = $this->getConverter();
-		if ( $variant === self::MIXED_VARIANT ) {
+		if ( $variant === $this->getMixedVariant() ) {
 			return $variant;
 		}
 
@@ -166,7 +188,7 @@ class VariantRegistry {
 		}
 
 		if ( !$this->hasVariants() || !$this->config->perVariantSortKeys() ) {
-			return $this->readerVariant = self::MIXED_VARIANT;
+			return $this->readerVariant = $this->getMixedVariant();
 		}
 
 		$preferred = $this->getConverter()->getPreferredVariant();
@@ -175,7 +197,7 @@ class VariantRegistry {
 			return $this->readerVariant = $preferred;
 		}
 
-		return $this->readerVariant = self::MIXED_VARIANT;
+		return $this->readerVariant = $this->getMixedVariant();
 	}
 
 	/**
@@ -190,7 +212,7 @@ class VariantRegistry {
 	public function getTitleTextForVariant( Title $title, string $variant ): string {
 		$converter = $this->getConverter();
 
-		if ( $variant === self::MIXED_VARIANT ) {
+		if ( $variant === $this->getMixedVariant() ) {
 			// The un-converted state: the title exactly as stored. Spelled out rather
 			// than relying on convertSplitTitle(), so the mixed variant stays correct
 			// even if a converter's identity conversion ever changes.
@@ -211,7 +233,7 @@ class VariantRegistry {
 	 *
 	 * getVariantsFallbacks() maps every variant to the variants it falls back to, so
 	 * anything appearing as a value is a conversion target; a variant appearing only as
-	 * a key (such as 'zh') cannot be converted to but is still a usable ordering.
+	 * a key cannot be converted to but is still a usable ordering.
 	 *
 	 * @return string[]
 	 */
@@ -235,10 +257,10 @@ class VariantRegistry {
 	 */
 	public function describe(): string {
 		$variants = $this->getVariants();
-		if ( $variants === [ self::MIXED_VARIANT ] ) {
+		if ( $variants === [ $this->getMixedVariant() ] ) {
 			return $this->hasVariants()
-				? self::MIXED_VARIANT . ' (per-variant sort keys disabled)'
-				: self::MIXED_VARIANT . " (this wiki's language has no variants)";
+				? $this->getMixedVariant() . ' (per-variant sort keys disabled)'
+				: $this->getMixedVariant() . " (this wiki's language has no variants)";
 		}
 		return implode( ', ', $variants );
 	}

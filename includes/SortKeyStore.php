@@ -89,7 +89,7 @@ class SortKeyStore {
 
 		$variants ??= $this->variants->getVariants();
 		if ( $variants === [] ) {
-			$variants = [ VariantRegistry::MIXED_VARIANT ];
+			$variants = [ $this->variants->getMixedVariant() ];
 		}
 
 		$targets = [];
@@ -246,17 +246,13 @@ class SortKeyStore {
 	}
 
 	/**
-	 * How many members of one category have a sort key in one mode.
-	 *
-	 * Used by the category page to notice that the table has not been populated yet,
-	 * and by checkSortKeys.php.
-	 */
-	/**
 	 * The variant a reader with no stored keys is served, so a category is never empty
 	 * just because the wiki configured only some variants.
+	 *
+	 * This is the wiki's own language code: the mixed, un-converted ordering.
 	 */
 	public function getFallbackVariant(): string {
-		return VariantRegistry::MIXED_VARIANT;
+		return $this->variants->getMixedVariant();
 	}
 
 	/**

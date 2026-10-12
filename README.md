@@ -289,9 +289,11 @@ Language variants to build sort keys for, for example:
 $wgCategoryMultisortNeueVariants = [ 'zh', 'zh-hans', 'zh-hant' ];
 ```
 
-The wiki's mixed/un-converted variant — `zh` — is always included, and is the fallback
-for a reader whose variant has no stored keys. A reader whose preferred variant is not
-in this list is served the mixed order rather than an empty category.
+The wiki's mixed/un-converted variant is always included, and is the fallback for a
+reader whose variant has no stored keys. It is the wiki's **own language code** — `zh`
+on a `zh` wiki, `zh-hans` on a `zh-hans` wiki, `de` on a `de` wiki — because that is the
+state a reader is in when they have chosen not to convert. A reader whose preferred
+variant is not in this list is served the mixed order rather than an empty category.
 
 Narrowing the list saves database space and rebuild time: each extra variant costs one
 more row per (member, category, mode).
@@ -350,16 +352,19 @@ Measured on a category of 12 variant pairs, stroke mode, rendered over HTTP:
 
 | reader variant | rendered order |
 | --- | --- |
-| *(none)*, `zh` | 万@7 后@27 体@31 里@34 国@35 … 後@38 國@43 萬@45 裡@46 體@50 |
+| *(none)*, `zh` (the wiki's own language code) | 万@7 后@27 体@31 里@34 国@35 … 後@38 國@43 萬@45 裡@46 體@50 |
 | `zh-hans` | 万@7 **萬@8** 后@34 **後@35** **体@39 體@40** 里@42 **裡@43** 国@44 **國@45** |
 | `zh-hant` | 里@26 后@30 **後@31** 国@36 **國@37** 万@40 **萬@41** **体@49 體@50** |
 
 Three genuinely different orders from the same stored category, and the grouping
 headings move with them — `体` is `⠇` under `zh-hans` but `⠗` under `zh-hant`.
 
-`zh` is the **mixed or un-converted** state: it is the order of the text exactly as
-written, and it is what a reader gets when they have chosen not to convert, as well as
-the fallback for any variant that has no stored keys.
+The mixed state is the wiki's own language code: `zh` on a `zh` wiki, `zh-hans` on a
+`zh-hans` wiki. It is the order of the text exactly as written, and it is what a reader
+gets when they have chosen not to convert, as well as the fallback for any variant that
+has no stored keys. It is deliberately not a fixed `zh` literal: a wiki whose language
+is already a concrete variant stores that variant, and a wiki with no variants at all
+stores its own language code rather than a Chinese one.
 
 How the variant changes the order depends on the mode, and this is worth understanding:
 

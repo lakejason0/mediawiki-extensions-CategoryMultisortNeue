@@ -322,12 +322,29 @@ converter's tables:
 转换标题测试 zh => 转换标题测试 zh-hans => 转换标题测试 zh-hant => 轉換標題測試
 ```
 
-**`zh` is the un-converted state**, and that is the default variant. It is not "no
-variant": it is the wiki's own "原文" variant, and it is what a reader sees when they
-have chosen not to convert. Every page measured returns its own title unchanged under
-it, so a `zh` key is the order of the text exactly as written — which is the right
-default for a wiki that mixes variants and for the many readers who browse without
-conversion.
+**The mixed variant is the wiki's own language code**, and that is the default. It is not
+"no variant": it is the un-converted state, what a reader sees when they have chosen not
+to convert, and the fallback for any variant that has no stored keys. Taking it from the
+language rather than hard-coding `zh` matters in three places:
+
+- A `zh` wiki stores `zh`, and every page measured returns its own title unchanged under
+  it, so a `zh` key is the order of the text exactly as written — the right default for a
+  wiki that mixes variants and for the many readers who browse without conversion.
+- A wiki whose language is already a concrete variant stores *that* variant. On
+  `$wgLanguageCode = 'zh-hans'` the mixed state is `zh-hans`, and `convertSplitTitle()`
+  returns the title unchanged under it — the same un-converted state, not a conversion.
+- A wiki with no variants at all stores its own code, `de` on a German wiki, rather than
+  a Chinese one. Its `cms_variant` column then holds a single value that names the wiki's
+  own language instead of something meaningless to it.
+
+The code is normalised through `validateVariant()` before use, because `Language::getCode()`
+lower-cases its parts while the converter spells the same variant `zh-Hant`; comparing the
+two forms directly would store one variant under two spellings.
+
+Note the consequence for diagnostics: the *same* variant code can mean different things on
+different wikis. `zh-hans` as a stored variant on a `zh` wiki is a conversion target, while
+`zh-hans` as the mixed variant on a `zh-hans` wiki is the un-converted state. Changing
+`$wgLanguageCode` therefore changes what existing rows mean, and they have to be rebuilt.
 
 The grouping letter is derived from the same per-variant text, so it changes with the
 variant too, as it must in order to stay consistent with the order:
@@ -337,8 +354,15 @@ variant too, as it must in order to stay consistent with the order:
 万  zh => 万 ⠃   zh-hans => 万 ⠃   zh-hant => 萬 ⠍
 ```
 
-A reader whose preferred variant has no stored keys falls back to the default variant,
-so a wiki that configures only some variants still works.
+A reader whose preferred variant has no stored keys falls back to the mixed variant, so a
+wiki that configures only some variants still works.
+
+**Rows for an unconfigured variant are stale, not wrong**, and both the checker and the
+cleanup script treat them that way. This matters because rebuilding under a different
+language or variant list leaves such rows behind, and a checker that compared them against
+the configured variant's key would report every one as a mismatch — a rebuild under
+`$wgLanguageCode = 'zh'` followed by a check under `'zh-hans'` reported 52 mismatches that
+were really 52 stale rows belonging to a different configuration.
 
 ### Paging across variants
 
@@ -411,6 +435,25 @@ Each control is a cursor over a boundary row, and the single-step case is exact 
 page 2's low row is the first row after page 1, so a backwards read from it lands on page
 1. From page 3 onward that row is already inside the page being reproduced, so the walk
 stops one page short.
+
+A later attempt reworked this and was reverted. What it established, so the next attempt
+does not repeat it:
+
+- The "previous" control must be built from the cursor the page *arrived* on, not from the
+  page's own low boundary row, and the cursor cannot simply be replayed: it carries the
+  comparison it was built for, so it points *at* this page's first row. The comparison has
+  to be inverted (`>` becomes `<`, and the page-id tie-break with it) to select the rows
+  before that row.
+- Which parameter carried the cursor decides the *reading* direction, but not
+  independently of how the rows are then presented. Reading from the `until` side returns
+  the rows nearest the boundary, which is what is wanted, but in the boundary's own order;
+  a category is always displayed in the collation's ascending order, so the rows have to
+  be turned back the right way round before display, and the page-id tie-break has to turn
+  with the sort key or reversing scrambles each tied group.
+- The back token cannot ride in the cursor parameter. Reaching a page through
+  `cmsbackpage` made the page adopt that token as its own arrival cursor, so its
+  "previous" control replayed a token from two pages back; the token needs its own slot
+  and the cursor lookup must consider only the two paging parameters.
 
 Three things are recorded for whoever picks this up, including one that is a warning:
 

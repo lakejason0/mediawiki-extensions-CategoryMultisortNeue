@@ -23,9 +23,9 @@
 			},
 			{
 				"name": "cms_variant",
-				"comment": "Language variant this key was built for. The wiki's mixed/un-converted variant ('zh') when variant-specific keys are disabled. A reader is served the key for their own variant, falling back to the default variant.",
+				"comment": "Language variant this key was built for. The mixed/un-converted ordering is stored under the wiki's own language code, e.g. 'zh' for a zh wiki or 'zh-hans' for a zh-hans wiki. A reader is served the key for their own variant, falling back to the mixed one.",
 				"type": "string",
-				"options": { "notnull": true, "length": 32, "default": "zh" }
+				"options": { "notnull": true, "length": 32 }
 			},
 			{
 				"name": "cms_sortkey",
