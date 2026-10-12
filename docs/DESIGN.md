@@ -439,21 +439,61 @@ stops one page short.
 A later attempt reworked this and was reverted. What it established, so the next attempt
 does not repeat it:
 
-- The "previous" control must be built from the cursor the page *arrived* on, not from the
-  page's own low boundary row, and the cursor cannot simply be replayed: it carries the
-  comparison it was built for, so it points *at* this page's first row. The comparison has
-  to be inverted (`>` becomes `<`, and the page-id tie-break with it) to select the rows
-  before that row.
-- Which parameter carried the cursor decides the *reading* direction, but not
-  independently of how the rows are then presented. Reading from the `until` side returns
-  the rows nearest the boundary, which is what is wanted, but in the boundary's own order;
-  a category is always displayed in the collation's ascending order, so the rows have to
-  be turned back the right way round before display, and the page-id tie-break has to turn
-  with the sort key or reversing scrambles each tied group.
-- The back token cannot ride in the cursor parameter. Reaching a page through
-  `cmsbackpage` made the page adopt that token as its own arrival cursor, so its
-  "previous" control replayed a token from two pages back; the token needs its own slot
-  and the cursor lookup must consider only the two paging parameters.
+**The window a backward read must fetch.** A page of results is fetched as `limit + 1`
+rows: the page, plus one sentinel past its far end. A forwards read starts at the page's
+low row, so the sentinel falls past the high row and the shape is already correct. A
+backwards read starts at the far end instead, so it comes back with *the page followed by
+the row before its low end*, and the whole set has to be turned round to put the sentinel
+last and restore the collation's order. Two ways to get this wrong, both made:
+
+- Reversing and *then* cutting to `limit + 1` drops the page's own last row, because the
+  cut has to happen before the turn for a forwards read and after it for a backwards one.
+  `probe-back-paging.php` reports this as "each backward step loses one member per step".
+- Building the backwards cursor from the page's **low** row cannot work at all: that
+  cursor's window is the page alone, with no row beyond the low end to serve as the
+  sentinel, so the page comes back exactly one member short no matter how the rows are
+  turned. The boundary has to be the page's **high** row, inclusive (`<=`), which is the
+  smallest window that still contains one row past the low end.
+
+**Two comparisons that were each blamed and each cleared.** Both were suspected as the
+cause of the off-by-one and both are fine; the notes are here so they are not suspected
+again:
+
+- `IReadableDatabase::addQuotes()` produces a text literal and the sort keys are arbitrary
+  bytes, so a key could in principle truncate at a NUL or be mangled. Measured against the
+  stored keys: no key contains a NUL byte, and the quoted text literal selects exactly the
+  right rows in the right order. A hex (`X'…'`) literal is *worse*, not better: SQLite
+  reports this column as `typeof() = 'text'`, and a blob literal compares by storage class
+  (blob sorts above text unconditionally), which returns every row or none.
+- The `LIMIT` and the predicate are both correct; `LIMIT limit + 1` with a `<=` boundary
+  is what makes the sentinel available.
+
+**Deriving the previous control from the arrival cursor also fails, and for a related
+reason.** An earlier sub-attempt tried that and was reverted too:
+
+- The cursor a page arrived on points *at* this page's first row, and carries the
+  comparison it was built for, so replaying it reproduces this page rather than the
+  previous one. Inverting it is not the answer either: the inverse of the cursor that
+  produced page N is not the cursor that produced page N−1, it is the cursor that produced
+  page N−1's forward neighbour, which for a chained backward walk overshoots by exactly one
+  page. That is the same off-by-one as the low-row boundary, arriving from the other side.
+- Which parameter carried a cursor does not decide the reading direction on its own. A
+  cursor in `until` is read from that boundary's side and comes back in the boundary's own
+  order; a category is always displayed in the collation's ascending order, so the rows
+  have to be turned round before display, and the page-id tie-break has to turn with the
+  sort key or reversing scrambles each tied group.
+- A back token must not ride in a cursor parameter. Reaching a page through `cmsbackpage`
+  made the page adopt that token as its own arrival cursor, so its "previous" control
+  replayed a token from two pages back. The cursor lookup has to consider only the two
+  paging parameters, and the token needs its own slot.
+
+**The failure was in the link construction, not the query.** Instrumenting the query
+showed the fetches were exactly right (`limit + 1` rows, right boundaries, right order)
+while the rendered page was still short, which places the defect in how
+`getSectionPagingLinks()` chooses the cursor for each control. The reverted attempt had
+replaced the arrival-cursor logic with a boundary-derived one and had the "previous"
+control pointing at the page's own high row while the read was still sized for a
+low-row boundary — a mismatch between two things that have to agree.
 
 Three things are recorded for whoever picks this up, including one that is a warning:
 
