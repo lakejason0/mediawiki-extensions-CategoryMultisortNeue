@@ -55,7 +55,9 @@ class MultiSortCategoryViewer extends CategoryViewer {
 
 	private readonly SortMode $mode;
 
-	/** Folds writing-system variants, shared with the mode that produced the keys. */
+	/**
+	 * Folds writing-system variants, shared with the mode that produced the keys.
+	 */
 	private readonly VariantRegistry $variants;
 
 	/**
@@ -126,19 +128,6 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	 * @var array<string,bool>
 	 */
 	private array $hasIncomingCursor = [ 'page' => false, 'subcat' => false, 'file' => false ];
-
-	/**
-	 * The cursor each section was reached with, if any.
-	 *
-	 * This is what the "previous page" control hands back. Reconstructing that link from
-	 * the current page's boundary rows instead is what made chained backward steps drift
-	 * by one page: the reconstructed cursor has to make the ordering and the boundary
-	 * agree, and for the page *before* the current one they do not. The cursor the reader
-	 * followed needs no reconstruction, so there is nothing to get wrong.
-	 *
-	 * @var array<string,string>
-	 */
-	private array $incomingCursor = [ 'page' => '', 'subcat' => '', 'file' => '' ];
 
 	/**
 	 * Language converter used for the grouping letters.
@@ -497,11 +486,10 @@ class MultiSortCategoryViewer extends CategoryViewer {
 			$extraConds = [ 'cl_type' => $type ];
 
 			if ( $useExtensionTable ) {
-				// Either parameter may arrive: a "next" link writes the from parameter and
-				// a "previous" link the until parameter. Only one is ever followed, so
-				// trying until first and then from just means the caller does not have to
-				// say which kind of link was clicked. The check is on the raw parameter
-				// rather than on the decoded cursor, because the token itself can be
+				// The cursor in force. Either parameter may carry it, and only one is ever
+				// followed, so trying until first and then from means the caller does not
+				// have to say which kind of link was clicked. The check is on the raw
+				// parameter rather than the decoded cursor, because the token can be
 				// falsy as a string.
 				$cursor = null;
 				$cursorToken = '';
@@ -517,9 +505,6 @@ class MultiSortCategoryViewer extends CategoryViewer {
 				if ( $cursor !== null ) {
 					$extraConds[] = OffsetCodec::cursorCondition( $categoryLinksDbr, $cursor );
 					$this->hasIncomingCursor[$type] = true;
-					// Remembered verbatim, so "previous page" can hand the reader back
-					// exactly the cursor they arrived with.
-					$this->incomingCursor[$type] = $cursorToken;
 					// The cursor carries the ordering, so a page keeps coming back in the
 					// direction the reader was already reading, whichever control got here.
 					$this->flip[$type] = $cursor['direction'] === OffsetCodec::DIR_BACKWARD;
@@ -873,67 +858,37 @@ class MultiSortCategoryViewer extends CategoryViewer {
 		$bound = $this->bounds[$type];
 		$backward = $this->flip[$type];
 
-		// Every control is a boundary row plus an explicit comparison, and the two travel
-		// together because neither implies the other:
+		// Both controls are "strictly beyond a boundary row", and the boundary is the row
+		// the current page stops at in each direction:
 		//
-		//   next (onwards in reading order)
-		//     walking forwards  — high row, ascending,  key > row
-		//     walking backwards — low row,  descending, key < row
-		//   previous (back towards the start)
-		//     walking forwards  — low row,  descending, key < row
-		//     walking backwards — high row, ascending,  key > row
+		//   next      the high row, exclusive, in the walk's own ordering
+		//   previous  the low row, exclusive, ordered backwards
 		//
-		// Two things are deliberate here. The comparison is exclusive in every case,
-		// because the row it names has already been shown. And a "previous" control
-		// reverses the ordering rather than keeping it: the page it leads to is the one
-		// reached by coming at the category from the other end, which is what the reader
-		// asked for by clicking "previous".
+		// Measured against the real rows in tools/probe-cursor-matrix.php: from page 2 a
+		// backwards cursor on page 2's low row reproduces page 1, which is the inverse of
+		// the cursor that produced page 2.
 		$low = $bound['lowSortKey'];
 		$lowId = $bound['lowPageId'];
 		$high = $bound['highSortKey'];
 		$highId = $bound['highPageId'];
 
-		// Each control is a boundary row plus an explicit comparison, and both travel
-		// together because neither implies the other. Measured against the real rows
-		// (tools/probe-cursor-matrix.php), the configuration that makes "previous" the
-		// exact inverse of "next" is:
-		//
-		//   next      high row, forwards,  key > row     — the page after the last row shown
-		//   previous  low row,  backwards, key < row     — the page before the first row shown
-		//
-		// A backward walk is the same two gestures seen from the far end, so both cursors
-		// keep the walk's own ordering and only the rows swap: "next" continues towards the
-		// start of the category from the low row, and "previous" goes back the way the
-		// reader came from the high row.
-		$low = $bound['lowSortKey'];
-		$lowId = $bound['lowPageId'];
-		$high = $bound['highSortKey'];
-		$highId = $bound['highPageId'];
+		$nextCursor = '';
+		if ( $this->hasMore[$type] ) {
+			$nextCursor = $backward
+				? ( $low === null ? '' : OffsetCodec::encode(
+					$low, $lowId, OffsetCodec::DIR_BACKWARD, '<', '<'
+				) )
+				: ( $high === null ? '' : OffsetCodec::encode(
+					$high, $highId, OffsetCodec::DIR_FORWARD, '>', '>'
+				) );
+		}
 
-		$nextForwards = $high === null ? '' : OffsetCodec::encode(
-			$high, $highId, OffsetCodec::DIR_FORWARD, '>', '>'
-		);
-		$previousForwards = $low === null ? '' : OffsetCodec::encode(
-			$low, $lowId, OffsetCodec::DIR_BACKWARD, '<', '<'
-		);
-		$nextBackwards = $low === null ? '' : OffsetCodec::encode(
-			$low, $lowId, OffsetCodec::DIR_BACKWARD, '<', '<'
-		);
-		$previousBackwards = $high === null ? '' : OffsetCodec::encode(
-			$high, $highId, OffsetCodec::DIR_FORWARD, '>', '>'
-		);
-
-		// "Next" moves on past the high row of the page in reading order; "previous"
-		// reaches back before the low row. Measured against the real rows
-		// (tools/probe-cursor-matrix.php), that is the pair that makes the two controls
-		// invert each other in a forward walk, and the same two gestures seen from the far
-		// end work for a backward walk with the boundary rows swapped.
-		$nextCursor = $this->hasMore[$type]
-			? ( $backward ? $nextBackwards : $nextForwards )
-			: '';
-		$prevCursor = $this->hasIncomingCursor[$type]
-			? ( $backward ? $previousBackwards : $previousForwards )
-			: '';
+		$prevCursor = '';
+		if ( $this->hasIncomingCursor[$type] && $low !== null ) {
+			$prevCursor = OffsetCodec::encode(
+				$low, $lowId, OffsetCodec::DIR_BACKWARD, '<', '<'
+			);
+		}
 
 		// A descending page shows its rows in the opposite reading order, so the two
 		// controls swap places while each keeps the meaning its cursor carries.
@@ -958,6 +913,24 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	 * exclude it. Two parameters let each link carry the comparison it needs without the
 	 * reader having to infer it. The unused one is cleared so a section can never hold
 	 * two conflicting cursors.
+	 *
+	 * @param string $first Cursor for the "previous page" control, or ''
+	 * @param string $last Cursor for the "next page" control, or ''
+	 * @param string $type
+	 * @param bool $useExtension
+	 */
+	/**
+	 * Restated from CategoryViewer::pagingLinks(). Offset values are passed verbatim; the
+	 * mode parameter is added so a page of results cannot be linked under a different
+	 * order.
+	 *
+	 * The extension keeps core's two offset parameters, one per direction of travel, and
+	 * adds a third that is not an offset at all: the cursor that leads back to where the
+	 * reader came from. A "next" link necessarily knows that cursor — it *is* the cursor
+	 * the current page was reached with — so it passes it on, and the "previous" link then
+	 * has an exact token to hand back instead of one reconstructed from boundary rows.
+	 * Inverting a cursor is not its own inverse, so the token that leads back is a
+	 * different token from the one that led here and cannot be recomputed from the page.
 	 *
 	 * @param string $first Cursor for the "previous page" control, or ''
 	 * @param string $last Cursor for the "next page" control, or ''
@@ -1020,8 +993,7 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	/**
 	 * Restated from CategoryViewer::addFragmentToTitle().
 	 */
-	private function addFragmentToTitle( PageReference $page, string $section ): LinkTarget {
-		$fragment = match ( $section ) {
+	private function addFragmentToTitle( PageReference $page, string $section ): LinkTarget {		$fragment = match ( $section ) {
 			'page' => 'mw-pages',
 			'subcat' => 'mw-subcategories',
 			'file' => 'mw-category-media',
