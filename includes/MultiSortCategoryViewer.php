@@ -616,7 +616,12 @@ class MultiSortCategoryViewer extends CategoryViewer {
 				$orderField = 'cl_sortkey';
 			}
 
-			if ( $this->flip[$type] ) {
+			// The window is the limit + 1 rows nearest the boundary the cursor names, which
+			// is what the LIMIT takes either way; a backwards read returns them in the
+			// boundary's own order and they are turned round below so the page reads in the
+			// collation's order like any other.
+			$readBackwards = $this->flip[$type];
+			if ( $readBackwards ) {
 				$queryBuilder->orderBy( $orderField, SelectQueryBuilder::SORT_DESC );
 			} else {
 				$queryBuilder->orderBy( $orderField );
@@ -636,6 +641,19 @@ class MultiSortCategoryViewer extends CategoryViewer {
 					$categoryTitles[] = $row->page_title;
 				}
 			}
+
+			if ( $readBackwards ) {
+				// The rows arrive nearest-the-boundary first; the page is that same set read
+				// the other way. Turning them here means everything downstream — the
+				// grouping headings, the boundary rows the links are built from, and the
+				// member list itself — sees an ordinary ascending page and needs no special
+				// case. The sentinel that proves a previous page exists stays last, which is
+				// where the loop below expects to find it.
+				$pageRows = array_reverse( $pageRows );
+			}
+
+			// Downstream reasoning is about a page in ascending order.
+			$this->flip[$type] = false;
 
 			$categoryFields = [ 'cat_id', 'cat_title', 'cat_subcats', 'cat_pages', 'cat_files' ];
 			$categoryData = [];
@@ -932,10 +950,25 @@ class MultiSortCategoryViewer extends CategoryViewer {
 				) );
 		}
 
+		// Inclusive of the low row, and the difference matters. A backwards read takes the
+		// limit + 1 rows nearest its boundary, so the boundary has to be a row *on this
+		// page*: the page then comes back as those rows read the other way, with the row
+		// before its low end last, which is the sentinel that proves a previous page
+		// exists. An exclusive `<` boundary starts one row too low and the page comes back
+		// shifted, which is the off-by-one that made chained backward steps land a page
+		// forward.
+		//
+		// Which rule is right was enumerated rather than argued: probe-cursor-rules.php
+		// tries every combination of boundary row, comparison and direction against the
+		// real member order, and `low <=` is the only one that reproduces the previous page
+		// for every page (11/11), while `high >` is the only one that reproduces the next
+		// (10/10 — the last page has nothing beyond it to serve). probe-prev-recipe.php
+		// shows why that pair and no other: it prints, for each candidate, the rows it
+		// selects and which end of that selection the window has to keep.
 		$prevCursor = '';
 		if ( $this->hasIncomingCursor[$type] && $low !== null ) {
 			$prevCursor = OffsetCodec::encode(
-				$low, $lowId, OffsetCodec::DIR_BACKWARD, '<', '<'
+				$low, $lowId, OffsetCodec::DIR_BACKWARD, '<=', '<='
 			);
 		}
 

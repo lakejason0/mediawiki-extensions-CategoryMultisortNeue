@@ -426,100 +426,57 @@ each, `dupes=0 missing=0 extra=0` against a single-page baseline, the chain stop
 real last page instead of emitting one empty page past it, and the walk is reproducible
 from the cursors alone.
 
-**Backward paging is exact for one step and one page short beyond that.** Stepping
-forward and then back reproduces the previous page exactly — `forward 1 then back 1: YES`
-— which is the gesture a reader actually makes. Chained backward steps land one page too
-far forward: after n steps forward and n back the reader reaches page n rather than page 1.
+**Backward paging is exact, including chained steps.** Forward n pages and back n returns
+to the page it started from for every n tried (1, 2, 3, 5, 8), which
+`tools/probe-back-paging.php` checks by comparing **rendered order** rather than member
+sets — a reversed page compares equal to the correct one if only the set is checked.
 
-Each control is a cursor over a boundary row, and the single-step case is exact because
-page 2's low row is the first row after page 1, so a backwards read from it lands on page
-1. From page 3 onward that row is already inside the page being reproduced, so the walk
-stops one page short.
+This was an open defect for two attempts, and the cause was finally pinned down by
+enumeration rather than reasoning. `tools/probe-cursor-rules.php` takes the real member
+order, cuts it into logical pages, and asks of every combination of boundary row,
+comparison and direction which page it actually produces. Out of sixteen candidates
+exactly two are correct:
 
-A later attempt reworked this and was reverted. What it established, so the next attempt
-does not repeat it:
+| control | boundary | comparison | read | result |
+| --- | --- | --- | --- | --- |
+| next | the page's **high** row | `>` (exclusive) | forwards | 10/10 |
+| previous | the page's **low** row | `<=` (**inclusive**) | backwards | 11/11 |
 
-**The window a backward read must fetch.** A page of results is fetched as `limit + 1`
-rows: the page, plus one sentinel past its far end. A forwards read starts at the page's
-low row, so the sentinel falls past the high row and the shape is already correct. A
-backwards read starts at the far end instead, so it comes back with *the page followed by
-the row before its low end*, and the whole set has to be turned round to put the sentinel
-last and restore the collation's order. Two ways to get this wrong, both made:
+The defect was a single character: the previous control used `<`, which starts one row
+too low. Every symptom followed from that. The window is `limit + 1` rows nearest the
+boundary in both cases; a backwards read returns them nearest-boundary-first, so they are
+turned round before anything else looks at them, which leaves the page in the collation's
+ascending order with the sentinel last. `tools/probe-prev-recipe.php` prints, for each
+candidate, the rows it selects *and* which end of that selection the window has to keep —
+that separation is what identified the real rule after the failure had been misread as an
+ordering problem.
 
-- Reversing and *then* cutting to `limit + 1` drops the page's own last row, because the
-  cut has to happen before the turn for a forwards read and after it for a backwards one.
-  `probe-back-paging.php` reports this as "each backward step loses one member per step".
-- Building the backwards cursor from the page's **low** row cannot work at all: that
-  cursor's window is the page alone, with no row beyond the low end to serve as the
-  sentinel, so the page comes back exactly one member short no matter how the rows are
-  turned. The boundary has to be the page's **high** row, inclusive (`<=`), which is the
-  smallest window that still contains one row past the low end.
+Why the two earlier attempts failed, recorded so they are not repeated:
 
-**Two comparisons that were each blamed and each cleared.** Both were suspected as the
-cause of the off-by-one and both are fine; the notes are here so they are not suspected
-again:
+- **Deriving "previous" from the cursor the page arrived on cannot work.** That cursor
+  points *at* this page's first row and carries the comparison it was built for, so
+  replaying it reproduces this page. Inverting it is not the answer either: the inverse of
+  the cursor that produced page N is the cursor that produced page N−1's *forward*
+  neighbour, which overshoots by exactly one page — the same off-by-one from the other
+  side.
+- **A back token must not ride in a cursor parameter.** Reaching a page through
+  `cmsbackpage` made the page adopt that token as its own arrival cursor, so its "previous"
+  control replayed a token from two pages back. The cursor lookup has to consider only the
+  two paging parameters, and a payload like that needs its own slot.
+- **The failure was in the link construction, not the query.** Instrumenting the query
+  showed the fetches exactly right — `limit + 1` rows, right boundaries, right order —
+  while the rendered page was still shifted. Both earlier attempts had changed the query,
+  which is why neither converged.
+
+Two suspects that were each blamed and each cleared, so they are not suspected again:
 
 - `IReadableDatabase::addQuotes()` produces a text literal and the sort keys are arbitrary
-  bytes, so a key could in principle truncate at a NUL or be mangled. Measured against the
-  stored keys: no key contains a NUL byte, and the quoted text literal selects exactly the
-  right rows in the right order. A hex (`X'…'`) literal is *worse*, not better: SQLite
-  reports this column as `typeof() = 'text'`, and a blob literal compares by storage class
-  (blob sorts above text unconditionally), which returns every row or none.
-- The `LIMIT` and the predicate are both correct; `LIMIT limit + 1` with a `<=` boundary
-  is what makes the sentinel available.
-
-**Deriving the previous control from the arrival cursor also fails, and for a related
-reason.** An earlier sub-attempt tried that and was reverted too:
-
-- The cursor a page arrived on points *at* this page's first row, and carries the
-  comparison it was built for, so replaying it reproduces this page rather than the
-  previous one. Inverting it is not the answer either: the inverse of the cursor that
-  produced page N is not the cursor that produced page N−1, it is the cursor that produced
-  page N−1's forward neighbour, which for a chained backward walk overshoots by exactly one
-  page. That is the same off-by-one as the low-row boundary, arriving from the other side.
-- Which parameter carried a cursor does not decide the reading direction on its own. A
-  cursor in `until` is read from that boundary's side and comes back in the boundary's own
-  order; a category is always displayed in the collation's ascending order, so the rows
-  have to be turned round before display, and the page-id tie-break has to turn with the
-  sort key or reversing scrambles each tied group.
-- A back token must not ride in a cursor parameter. Reaching a page through `cmsbackpage`
-  made the page adopt that token as its own arrival cursor, so its "previous" control
-  replayed a token from two pages back. The cursor lookup has to consider only the two
-  paging parameters, and the token needs its own slot.
-
-**The failure was in the link construction, not the query.** Instrumenting the query
-showed the fetches were exactly right (`limit + 1` rows, right boundaries, right order)
-while the rendered page was still short, which places the defect in how
-`getSectionPagingLinks()` chooses the cursor for each control. The reverted attempt had
-replaced the arrival-cursor logic with a boundary-derived one and had the "previous"
-control pointing at the page's own high row while the read was still sized for a
-low-row boundary — a mismatch between two things that have to agree.
-
-Three things are recorded for whoever picks this up, including one that is a warning:
-
-- **The rule in the code is measured, not guessed.** `tools/probe-cursor-matrix.php` tries
-  every combination of the two boundary rows against the two orderings and prints where
-  each leads. Next from the high row and previous from the low row, both exclusive, with
-  previous ordered backwards, is the only pair found that makes the single step exact
-  without disturbing the forward walk.
-
-- **A third token is needed, and the obvious ways to derive it are wrong.** The page a
-  "previous" link lands on was itself reached by "next", so it holds a back-offset of its
-  own, and the link has to carry that one. Carrying the emitted token, the arrived token,
-  and the inverse of the arrived token were each tried during this work and each broke a
-  different case. The invariant that makes the carry exact is that replaying the offset
-  which reaches page N reproduces page N (`tools/probe-prev-rules.php` demonstrates it);
-  none of those three carries implements it.
-
-- **A reversed page compares equal to the correct one if only the member set is checked.**
-  A probe written during this work compared sets and reported success while the rendered
-  order was reversed, which sent several attempts in the wrong direction before the
-  mismatch was spotted. Any future attempt must compare rendered order;
-  `tools/probe-roundtrip-paging.php` and `tools/probe-prev-gesture.php` both do, and are
-  the checks to run.
-
-Neither gap affects the acceptance suite, whose paging check walks forwards, nor
-`core-diff`, which pins the default mode to byte-identical core output.
+  bytes, so a key could in principle truncate at a NUL or be mangled. Measured: no stored
+  key contains a NUL byte, and the quoted literal selects exactly the right rows in the
+  right order. A hex (`X'…'`) literal is *worse*, not better: SQLite reports this column as
+  `typeof() = 'text'`, and a blob literal compares by storage class, where blob sorts above
+  text unconditionally, so it returns every row or none.
+- The `LIMIT` and the predicate are both correct.
 
 ### Readings that cannot be derived
 
