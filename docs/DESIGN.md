@@ -51,17 +51,28 @@ So the rules this extension sets for itself:
 
 ```
 categorylinks (core, read-only for this extension)     categorylinks_multisort (this extension)
-  PRIMARY KEY (cl_from, cl_target_id)        ─────┬──►  PRIMARY KEY (cms_from, cms_target_id, cms_mode)
-  cl_sortkey_prefix  ← human-readable key          │     cms_mode      string(32)
-  cl_sortkey         ← core key, left alone        │     cms_sortkey   blob, ≤230 bytes
-  cl_collation_id                                  └───  INDEX cms_target_mode_sortkey
+  PRIMARY KEY (cl_from, cl_target_id)        ─────┬──►  PRIMARY KEY (cms_from, cms_target_id,
+  cl_sortkey_prefix  ← human-readable key          │                 cms_mode, cms_variant)
+  cl_sortkey         ← core key, left alone        │     cms_mode      string(32)
+  cl_collation_id                                  │     cms_variant   string(32)
+                                                    │     cms_sortkey   blob, ≤230 bytes
+                                                    └───  INDEX cms_target_mode_sortkey
+                                                          (cms_target_id, cms_mode, cms_variant,
+                                                           cms_sortkey, cms_from)
 ```
 
 Decisions and their reasons:
 
-- **The primary key mirrors `categorylinks`.** No page or category identity is
-  duplicated, so a page move or a category rename cannot desynchronise anything: page
-  ids and linktarget ids do not change on a move.
+- **The primary key mirrors `categorylinks`, extended by the two axes this extension
+  adds.** No page or category identity is duplicated, so a page move or a category rename
+  cannot desynchronise anything: page ids and linktarget ids do not change on a move.
+  `(cms_mode, cms_variant)` say *which* ordering a row is for, so one member has one row
+  per combination rather than one row overall.
+- **`cms_variant` holds the wiki's own language code for the mixed, un-converted
+  ordering.** Not a literal `zh`, and not "no variant": see
+  [Writing-system variants](#writing-system-variants). There is deliberately no default
+  value in the schema — the extension always writes the column — because a default would
+  label every row of, say, a German wiki with a Chinese code.
 - **No auto-increment id.** MediaWiki's abstract schema maps
   `autoincrement` differently across SQLite and PostgreSQL, and there is no need for a
   surrogate key when the natural one is already unique.
@@ -115,9 +126,31 @@ parameters (`cmspagefrom`, `cmssubcatfrom`, `cmsfilefrom` and the matching `…u
 The query then compares the binary key directly, which is exact and reproducible.
 
 **The tiebreaker has to be deterministic.** `ORDER BY cms_sortkey` alone is not a total
-order: two members can share a key (identical titles in different namespaces, or two
-pages given the same explicit sort key). `cl_from` is appended as a secondary sort, so
-a page of results is stable and paging cannot skip or repeat a row.
+order: two members can share a key (identical titles in different namespaces, two pages
+given the same explicit sort key, or — on a variant-aware wiki — a pair whose two forms
+convert to the same key). `cl_from` is appended as a secondary sort, so a page of results
+is stable and paging cannot skip or repeat a row. Because the key is not unique, a cursor
+that named only the key would serve the first of a tied group again on the next page,
+which is why the cursor carries the page id as well.
+
+**A cursor carries its own comparison, not just a position.** The encoded token holds the
+direction, the two comparison operators, the key and the page id:
+
+    [direction][key operator][id operator][4-byte key length][key][8-byte page id]
+
+The operators travel with the token because they are not derivable from it: a control
+that moves *on* past a boundary row compares `>`, while one that has to reproduce the page
+*containing* its boundary compares `<=`, and both are "backwards" or "forwards" in
+different senses. Which pair is right was settled by enumeration — see
+[Paging across variants](#paging-across-variants), where the two correct rules are stated
+and `tools/probe-cursor-rules.php` prints the score of every alternative.
+
+**A backwards read is turned back into ascending order before anything reads it.** The
+query keeps the `limit + 1` rows nearest its boundary, so a backwards read returns them
+nearest-boundary-first. Reversing them in `doCategoryQuery()` means the grouping headings,
+the boundary rows the links are built from and the member list itself all see an ordinary
+ascending page, and no downstream code needs a special case for "this page was reached
+from the far side".
 
 ## Restating core's viewer
 
@@ -232,16 +265,16 @@ several writing systems, and readers choose which. Category pages do not follow 
 choice, and with shape-based collations the result is unusable as an index: `体` and
 `體` are the same word but 7 and 23 strokes, so stroke order scatters them.
 
-Measured on a category of 12 variant pairs, stroke mode: **0 of 12 pairs adjacent**,
-with pairs as far apart as positions 6 and 45 out of 57. After folding, 12 of 12 are
-adjacent, all 12 share a grouping heading, and the order is identical for every
-variant a reader can select.
+The extension's answer is **one sort key per (member, category, mode, variant)**: a reader
+who switches writing system gets a genuinely different order, because the variants really
+do occupy different positions. `VariantRegistry` decides which variants are stored and
+which one a request is served.
 
-The fix is to fold both halves of the sort key input — the title text and the
-`cl_sortkey_prefix` — to one canonical variant before the collation sees them.
-`VariantFolder` owns that.
-
-Three things about MediaWiki made this less obvious than it looks:
+An earlier revision of this branch did the opposite — it folded every variant to one
+canonical form so a single key per member would do. That was the wrong goal, and
+[Why the difference is real](#why-the-difference-is-real) records the measurement that
+settled it. Three things found on that wrong turn are still worth knowing, because each
+is easy to reach for again:
 
 1. **`convertCategoryKey()` cannot be used, despite its name and its documentation.**
    `ILanguageConverter::convertCategoryKey()` says it "should make different keys that
@@ -251,35 +284,31 @@ Three things about MediaWiki made this less obvious than it looks:
    variant pairs, `convertCategoryKey()` collapses **zero** of them. An explicit
    variant is required.
 
-2. **The canonical variant must be a conversion *target*, not merely a valid variant.**
-   `zh` is in `ZhConverter::getVariants()` and `validateVariant( 'zh' )` accepts it, so
-   the first implementation resolved the canonical variant to `zh` and silently folded
-   nothing. The reliable signal is `getVariantsFallbacks()`, which maps each variant to
-   the variants it can fall back to: a variant appearing only as a *key* cannot be
-   converted to. `ZhConverter::getAdditionalManualLevel()` marks `zh` as `'disable'`
-   for the same reason.
+2. **A variant code must be a conversion *target* to be folded towards, not merely a
+   valid variant name.** `zh` is in `ZhConverter::getVariants()` and
+   `validateVariant( 'zh' )` accepts it, so the folding revision resolved its canonical
+   variant to `zh` and silently folded nothing. The reliable signal is
+   `getVariantsFallbacks()`, which maps each variant to the variants it can fall back to:
+   a variant appearing only as a *key* cannot be converted to.
+   `ZhConverter::getAdditionalManualLevel()` marks `zh` as `'disable'` for the same
+   reason. The current design sidesteps this by storing each variant's own key rather
+   than converting towards one, so `zh` needs no special handling — but the trap remains
+   for anything that wants to convert *to* a canonical form.
 
-3. **The conversion tables are not symmetric.** Folding towards simplified collapses
-   all 15 pairs measured; folding towards traditional collapses only 13, because
-   `里/裡` and `台/臺` do not merge in that direction. So `zh-hans` is the fallback
-   rather than `zh-hant`, and the site's own variant wins when it is a concrete one.
+3. **The conversion tables are not symmetric.** Folding towards simplified collapsed all
+   15 pairs measured; folding towards traditional collapsed only 13, because `里/裡` and
+   `台/臺` do not merge in that direction. That asymmetry is why, in the current design,
+   `validateVariant()` is still used — not to pick a target, but to normalise a
+   configured variant into the spelling the converter uses.
 
-Two consequences worth stating:
+Pinyin and zhuyin keep variant pairs together already, because they sort by sound rather
+than shape, and they still cannot merge them: `发`/`發` are genuinely different readings,
+and MediaWiki has no mechanism to declare a page's reading. That is what the per-mode
+magic words are for.
 
-- **Grouping letters have to be folded as well.** Otherwise a page can be sorted next
-  to its variant twin but filed under a different heading, which is worse than either
-  failure on its own.
-- **Folding makes the order variant-independent**, which is the actual goal: a category
-  is a shared index, not a per-reader view. If the order changed with the reader's
-  variant, the same category would page differently for different readers.
-
-Pinyin and zhuyin keep variant pairs together already, because they sort by sound
-rather than shape, and they still cannot merge them: `发`/`發` are genuinely different
-readings, and MediaWiki has no mechanism to declare a page's reading. That is what the
-per-mode magic words are for.
-
-The whole mechanism short-circuits on a wiki without variants: the canonical variant
-resolves to null and no conversion is attempted, so an ordinary wiki pays nothing.
+The whole mechanism short-circuits on a wiki without variants: there is one variant, the
+wiki's own language code, and no conversion is attempted, so an ordinary wiki pays
+nothing.
 
 ### Why the difference is real
 
@@ -294,6 +323,16 @@ Measured with PHP's `Collator`: `体` is `a10d16` and `體` is `a3d436` under
 them in genuinely different positions, because they are different characters with
 different shapes and sometimes different readings. So there is no "correct" single
 order to fold towards, and the reader's variant is the only sensible thing to order by.
+
+**A pair being "the same word" does not mean its two forms belong together in every
+ordering.** Measured on the 12-pair category, stroke mode: under `zh-hans` all 12 pairs
+are adjacent, but under `zh-hant` only 10 are. `里`/`裡` (positions 26 and 42) and
+`台`/`臺` (18 and 43) separate, because under a traditional ordering both members are the
+real forms of two different characters with different shapes. The collation is consistent
+about it: `裡` shares its primary weight with `衣` and `臺` with `至`, which is not where
+`里` and `台` sit. This is not a defect to fix by folding — folding is what hid it — and it
+is the honest cost of ordering each variant by its own shapes. A wiki that wants a
+specific pair together says so with a per-mode magic word.
 
 ### One sort key per variant
 
@@ -562,7 +601,18 @@ Collected here because each one cost real debugging time.
    `rebuildSortKeys`.
 
 8. **Anything that changes how a sort key is computed needs a rebuild, and there is no
-   way to detect a stale key.** `checkSortKeys` recomputes with the current settings,
-   so after enabling variant folding it reports every existing key as a mismatch until
-   `rebuildSortKeys` runs. That is the correct behaviour — the keys really are stale —
-   but it means the setting cannot be switched on quietly in a release.
+   way to detect a stale key from the key itself.** `checkSortKeys` recomputes with the
+   current settings, so after changing a mode's collation, enabling variant-specific
+   keys or changing `$wgLanguageCode`, it reports the existing keys as inconsistent
+   until `rebuildSortKeys` runs. That is the correct behaviour — the keys really are
+   stale — but it means such a change cannot be switched on quietly in a release.
+
+9. **"Stale" and "wrong" are different findings, and conflating them cost real time.**
+   A row whose *mode* or *variant* is no longer configured is not a bad key, it is a key
+   for an ordering this wiki no longer serves. Reporting it as a mismatch is misleading
+   in the worst way, because the natural response is to hunt for a computation bug: a
+   rebuild under `$wgLanguageCode = 'zh'` followed by a check under `'zh-hans'` produced
+   52 "mismatches" that were really 52 rows belonging to the other configuration.
+   `checkSortKeys` reports those separately now, and `deleteSortKeys` removes them.
+   Note the asymmetry when reading its output: `mismatch` means the computation is
+   wrong, `stale` means the row is obsolete.

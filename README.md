@@ -348,16 +348,27 @@ A simplified reader wants `体` where 7 strokes belongs; a traditional reader wa
 **one sort key per variant** and serves each reader their own, which is what
 `$wgCategoryMultisortNeuePerVariantSortKeys` (on by default) does.
 
-Measured on a category of 12 variant pairs, stroke mode, rendered over HTTP:
+Measured on a category of 12 variant pairs, stroke mode:
 
 | reader variant | rendered order |
 | --- | --- |
 | *(none)*, `zh` (the wiki's own language code) | 万@7 后@27 体@31 里@34 国@35 … 後@38 國@43 萬@45 裡@46 體@50 |
-| `zh-hans` | 万@7 **萬@8** 后@34 **後@35** **体@39 體@40** 里@42 **裡@43** 国@44 **國@45** |
-| `zh-hant` | 里@26 后@30 **後@31** 国@36 **國@37** 万@40 **萬@41** **体@49 體@50** |
+| `zh-hans` | 万@7 **萬@8** 后@34 **後@35** **体@39 體@40** **里@42 裡@43** **国@44 國@45** |
+| `zh-hant` | 后@30 **後@31** 国@36 **國@37** 万@40 **萬@41** **体@49 體@50** … 里@26, 裡@42, 台@18, 臺@43 |
 
 Three genuinely different orders from the same stored category, and the grouping
 headings move with them — `体` is `⠇` under `zh-hans` but `⠗` under `zh-hant`.
+
+**"Different order" is not the same as "the pair is always adjacent".** Under `zh-hans`
+all 12 pairs land next to each other, because that is the writing system the rest of the
+category is in and the converted forms simply take their places. Under `zh-hant`, 10 of 12
+do: `里`/`裡` (positions 26 and 42) and `台`/`臺` (18 and 43) do not, because under a
+traditional ordering those are two genuinely different characters with different shapes,
+and a shape-based collation is supposed to separate them. An ICU `unihan` collation agrees
+with itself about this: `裡` shares its primary weight with `衣`, and `臺` with `至`,
+which is not where `里` and `台` sit. Ordering each variant by its own shapes means
+accepting its own separations; if a wiki wants a specific pair together, that is what the
+per-mode magic words are for.
 
 The mixed state is the wiki's own language code: `zh` on a `zh` wiki, `zh-hans` on a
 `zh-hans` wiki. It is the order of the text exactly as written, and it is what a reader
