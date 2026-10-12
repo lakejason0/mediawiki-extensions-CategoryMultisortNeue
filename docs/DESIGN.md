@@ -370,34 +370,38 @@ each, `dupes=0 missing=0 extra=0` against a single-page baseline, the chain stop
 real last page instead of emitting one empty page past it, and the walk is reproducible
 from the cursors alone.
 
-**Backward paging is exact for one step and off by one page beyond that.** Stepping
-forward and then back reproduces the previous page exactly
-(`forward 1 then back 1: YES`), which is the gesture a reader actually makes. *Chained*
-backward steps drift low: after n steps forward and n back the reader lands on page n
-rather than page 1, so each backward step after the first advances one page too few.
+**Backward paging is exact for one step and one page short beyond that.** Stepping
+forward and then back reproduces the previous page exactly — `forward 1 then back 1: YES`
+— which is the gesture a reader actually makes. Chained backward steps land one page too
+far forward: after n steps forward and n back the reader reaches page n rather than page 1.
 
-Both controls are now "strictly beyond a boundary row": next leaves from the page's high
-row, previous from its low row, both exclusive, with previous ordered backwards. That is
-the pair measured in `tools/probe-cursor-matrix.php`, and it is the only arrangement
-found that makes the single backward step exact without breaking the forward walk.
+Each control is a cursor over a boundary row, and the single-step case is exact because
+page 2's low row is the first row after page 1, so a backwards read from it lands on page
+1. From page 3 onward that row is already inside the page being reproduced, so the walk
+stops one page short.
 
-What makes the chained case different is worth stating, because it is not obvious and it
-is where the next attempt should start. A cursor fixes two independent things: the row it
-names, and the ordering it selects in. The cursor that produced page *N* names page *N-1*'s
-last row and reads forwards past it. The cursor that produces page *N-1* has to name a row
-that lies *inside* page *N* (its low row) and read backwards from it. Those are different
-rows in the same page's coordinate system, and which one is correct depends on whether the
-reader is one step or several steps from the start — so no function of the current page's
-two boundary rows alone can serve both. Handing the arrived-with cursor straight back does
-not work either: inverting a cursor is not its own inverse, so the token that leads back is
-a different token from the one that led here.
+Three things are recorded for whoever picks this up, including one that is a warning:
 
-The arrangement that does work needs the page to carry the token that reaches the *page
-before it*, which the "next" link knows by construction — it is the cursor that reached the
-page the link is on. Carrying that third token in the URL makes every backward step a
-verbatim replay of a forward step, so it cannot drift. An earlier attempt at that is what
-`$incomingCursor` was for; it needs the link builder to place the carried token in the
-parameter whose meaning matches, which is the remaining piece of work.
+- **The rule in the code is measured, not guessed.** `tools/probe-cursor-matrix.php` tries
+  every combination of the two boundary rows against the two orderings and prints where
+  each leads. Next from the high row and previous from the low row, both exclusive, with
+  previous ordered backwards, is the only pair found that makes the single step exact
+  without disturbing the forward walk.
+
+- **A third token is needed, and the obvious ways to derive it are wrong.** The page a
+  "previous" link lands on was itself reached by "next", so it holds a back-offset of its
+  own, and the link has to carry that one. Carrying the emitted token, the arrived token,
+  and the inverse of the arrived token were each tried during this work and each broke a
+  different case. The invariant that makes the carry exact is that replaying the offset
+  which reaches page N reproduces page N (`tools/probe-prev-rules.php` demonstrates it);
+  none of those three carries implements it.
+
+- **A reversed page compares equal to the correct one if only the member set is checked.**
+  A probe written during this work compared sets and reported success while the rendered
+  order was reversed, which sent several attempts in the wrong direction before the
+  mismatch was spotted. Any future attempt must compare rendered order;
+  `tools/probe-roundtrip-paging.php` and `tools/probe-prev-gesture.php` both do, and are
+  the checks to run.
 
 Neither gap affects the acceptance suite, whose paging check walks forwards, nor
 `core-diff`, which pins the default mode to byte-identical core output.
