@@ -163,16 +163,46 @@ class OffsetCodec {
 	 * The id comparison always breaks ties between rows sharing a sort key, never
 	 * selects on its own: it is only consulted where the keys are equal.
 	 *
+	 * Assembled as quoted SQL rather than through `expr()`, because the key side is an
+	 * arbitrary expression (the variant-fallback COALESCE) and `expr()` only accepts a
+	 * plain field name there — it rejects anything else as a possible injection. The
+	 * values are quoted with the database's own escaper, and the operators come from a
+	 * fixed set, so nothing here is interpolated unchecked.
+	 *
 	 * @param IReadableDatabase $db
 	 * @param array{sortkey:string,pageId:int,direction:string,keyOperator:string,idOperator:string} $cursor
+	 * @param string $keyExpression SQL expression yielding the effective sort key. Must
+	 *   be the same expression the query orders by, otherwise the filter and the
+	 *   ordering disagree about where a boundary row is and paging skips or repeats.
+	 *   Defaults to the bare column for callers that have no fallback to apply.
+	 * @param string $idColumn Column holding the page id, which breaks ties between
+	 *   rows sharing a key. Qualified by the caller, because a query that joins the
+	 *   extension table twice has more than one `cms_from` in scope.
 	 */
-	public static function cursorCondition( IReadableDatabase $db, array $cursor ): string {
-		return $db->makeList( [
-			$db->expr( 'cms_sortkey', $cursor['keyOperator'], $cursor['sortkey'] ),
-			$db->makeList( [
-				$db->expr( 'cms_sortkey', '=', $cursor['sortkey'] ),
-				$db->expr( 'cms_from', $cursor['idOperator'], $cursor['pageId'] ),
-			], IReadableDatabase::LIST_AND ),
-		], IReadableDatabase::LIST_OR );
+	public static function cursorCondition(
+		IReadableDatabase $db,
+		array $cursor,
+		string $keyExpression = 'cms_sortkey',
+		string $idColumn = 'cms_from'
+	): string {
+		$keyOperator = self::assertOperator( $cursor['keyOperator'] );
+		$idOperator = self::assertOperator( $cursor['idOperator'] );
+		$quotedKey = $db->addQuotes( $cursor['sortkey'] );
+		$pageId = (int)$cursor['pageId'];
+
+		$pastKey = "$keyExpression $keyOperator $quotedKey";
+		$atKeyPastId = "( $keyExpression = $quotedKey AND $idColumn $idOperator $pageId )";
+
+		return "( $pastKey OR $atKeyPastId )";
+	}
+
+	/**
+	 * @param string $operator
+	 */
+	private static function assertOperator( string $operator ): string {
+		if ( !isset( self::OPERATOR_CODES[$operator] ) ) {
+			throw new \InvalidArgumentException( "Unsupported cursor operator: $operator" );
+		}
+		return $operator;
 	}
 }

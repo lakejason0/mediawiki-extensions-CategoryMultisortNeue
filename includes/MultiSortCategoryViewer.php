@@ -459,6 +459,20 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	}
 
 	/**
+	 * The sort key expression a member is ordered and paged by.
+	 *
+	 * The reader's own variant wins; the mixed variant is the fallback when that variant
+	 * has no row for the member. Every place that compares or orders on the effective
+	 * key has to use this same expression, or the cursor and the ordering disagree.
+	 *
+	 * Written as literal SQL because it is a fixed two-column choice with no user input;
+	 * the parameters are bound separately.
+	 */
+	private function effectiveSortKeyExpression(): string {
+		return 'COALESCE(cms_reader.cms_sortkey, cms_mixed.cms_sortkey)';
+	}
+
+	/**
 	 * @inheritDoc
 	 *
 	 * Restated from CategoryViewer with the additions described in the class
@@ -503,7 +517,16 @@ class MultiSortCategoryViewer extends CategoryViewer {
 				}
 
 				if ( $cursor !== null ) {
-					$extraConds[] = OffsetCodec::cursorCondition( $categoryLinksDbr, $cursor );
+					// Filtered on the same expression the query orders by, so the
+					// boundary row the cursor names is located the way it was found.
+					// The tiebreaker is cl_from: the extension table is joined twice,
+					// so its own cms_from is ambiguous here.
+					$extraConds[] = OffsetCodec::cursorCondition(
+						$categoryLinksDbr,
+						$cursor,
+						$this->effectiveSortKeyExpression(),
+						'cl_from'
+					);
 					$this->hasIncomingCursor[$type] = true;
 					// The cursor carries the ordering, so a page keeps coming back in the
 					// direction the reader was already reading, whichever control got here.
@@ -531,9 +554,6 @@ class MultiSortCategoryViewer extends CategoryViewer {
 				LinkCache::getSelectFields(),
 				[ 'cl_sortkey', 'cl_sortkey_prefix', 'collation_name' ]
 			);
-			if ( $useExtensionTable ) {
-				$fields[] = 'cms_sortkey';
-			}
 
 			$queryBuilder = $categoryLinksDbr->newSelectQueryBuilder();
 			$queryBuilder->select( $fields )
@@ -548,20 +568,49 @@ class MultiSortCategoryViewer extends CategoryViewer {
 				] );
 
 			if ( $useExtensionTable ) {
+				// A member's key is read for the reader's own variant, falling back to
+				// the mixed variant when that variant has no row for it.
+				//
+				// The fallback is not a nicety: rows can legitimately be absent for a
+				// variant. A page whose title converts to the same key under every
+				// variant (any title that sorts by a leading Latin part, for instance)
+				// has one distinct key, and a page edited while a variant was not
+				// configured has none for it. An inner join on an exact variant match
+				// would drop those members from the category entirely, which is
+				// silent data loss rather than a different order.
+				$readerAlias = 'cms_reader';
+				$mixedAlias = 'cms_mixed';
 				$queryBuilder
-					->join(
+					->leftJoin(
 						SortKeyStore::TABLE,
-						'cms',
-						[ 'cms_from = cl_from', 'cms_target_id = cl_target_id' ]
+						$readerAlias,
+						[
+							"$readerAlias.cms_from = cl_from",
+							"$readerAlias.cms_target_id = cl_target_id",
+							"$readerAlias.cms_mode" => $this->mode->id,
+							"$readerAlias.cms_variant" => $this->readerVariant,
+						]
 					)
-					->andWhere( [
-						'cms_mode' => $this->mode->id,
-						// The reader's own variant: switching writing system is meant to
-						// change the order, and these keys were built for it.
-						'cms_variant' => $this->readerVariant,
-					] )
-					->useIndex( [ SortKeyStore::TABLE => 'cms_target_mode_sortkey' ] );
-				$orderField = 'cms_sortkey';
+					->leftJoin(
+						SortKeyStore::TABLE,
+						$mixedAlias,
+						[
+							"$mixedAlias.cms_from = cl_from",
+							"$mixedAlias.cms_target_id = cl_target_id",
+							"$mixedAlias.cms_mode" => $this->mode->id,
+							"$mixedAlias.cms_variant" => VariantRegistry::MIXED_VARIANT,
+						]
+					)
+					// A member with neither row has no key in this mode at all, so it is
+					// not sortable here and must not appear. Written as literal SQL
+					// because the aliases are fixed and carry no user input.
+					->andWhere(
+						"$readerAlias.cms_sortkey IS NOT NULL OR $mixedAlias.cms_sortkey IS NOT NULL"
+					);
+
+				$orderExpression = $this->effectiveSortKeyExpression();
+				$queryBuilder->select( [ 'cms_sortkey' => $orderExpression ] );
+				$orderField = $orderExpression;
 			} else {
 				$queryBuilder->useIndex( [ 'categorylinks' => 'cl_sortkey_id' ] );
 				$orderField = 'cl_sortkey';

@@ -682,8 +682,15 @@ the primary key. `update.php` recreates the table empty — it is a derived cach
 then you must run `rebuildSortKeys`.
 
 **A category is empty for some readers.** That reader's variant has no stored keys.
-Either add it to `$wgCategoryMultisortNeueVariants`, or accept the fallback: a variant
-with no keys is served the mixed (`zh`) order rather than nothing.
+Either add it to `$wgCategoryMultisortNeueVariants`, or accept the fallback: a member
+with no key for the reader's variant is served the mixed (`zh`) key instead, so the
+category still lists it. Nothing is lost either way — this is an ordering difference,
+not a missing member.
+
+**Some members show one order and others another.** Expected, and the point of the
+feature: a member whose key differs between variants follows the reader's variant, while
+one whose key is the same in every variant (any title that sorts by a leading Latin part)
+sits in the same place for everyone.
 
 **Variant pairs are not next to each other, and the order does not change.**
 Check that the wiki's language is the base code (`zh`, not `zh-hans`) — otherwise the

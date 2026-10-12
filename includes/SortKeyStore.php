@@ -130,11 +130,13 @@ class SortKeyStore {
 					}
 
 					$key = "$pageId|$targetId|{$mode->id}|$variant";
-					if ( ( $existing[$key] ?? null ) === $sortKey ) {
-						continue;
-					}
+					if ( array_key_exists( $key, $existing ) ) {
+						if ( $existing[$key] === $sortKey ) {
+							// Already correct. Skipped for the write, but the row is
+							// there, which is what the reader query needs.
+							continue;
+						}
 
-					if ( isset( $existing[$key] ) ) {
 						// The row exists but moved; replace it rather than leave the old
 						// key behind for the category page to trip over.
 						$dbw->newDeleteQueryBuilder()
@@ -149,6 +151,14 @@ class SortKeyStore {
 							->execute();
 					}
 
+					// Every (mode, variant) is written, including when the key equals
+					// another variant's. Keeping only one row per distinct key would be
+					// tempting, but a member must have a row for every variant it can be
+					// read in: a title that sorts by a leading Latin part converts to the
+					// same key under every variant, and a member with no row for the
+					// reader's variant would otherwise vanish from the category. The
+					// query falls back to the mixed variant as well, so this is about
+					// keeping the data complete rather than about correctness alone.
 					$inserts[] = [
 						self::FIELD_PAGE => $pageId,
 						self::FIELD_TARGET => $targetId,

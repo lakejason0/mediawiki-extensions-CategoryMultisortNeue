@@ -342,7 +342,7 @@ so a wiki that configures only some variants still works.
 
 ### Paging across variants
 
-Per-variant keys change what paging has to do, and two bugs only become reachable once
+Per-variant keys change what paging has to do, and four bugs only become reachable once
 variant twins exist.
 
 **Cursors carry the row, the ordering and the comparison.** Members sort by
@@ -357,6 +357,38 @@ two characters wide and a variable-width prefix cannot be framed unambiguously. 
 comparison has to travel with the cursor: a control that moves *on* past a boundary row
 excludes it, while one that moves *back* over it includes it, and which of the two is
 wanted does not follow from the row or from the walk direction.
+
+**An exact variant match drops members.** The member query joined
+`categorylinks_multisort` on `cms_variant = <reader's variant>`. A member with no row for
+that variant then disappeared from the category, which is silent data loss rather than a
+different order. It is reachable whenever the variant is not the one that happened to be
+written last:
+
+- A title that sorts by a leading Latin part converts to the same key under every
+  variant — `CategoryMultisortNeue/魔术字探针` and its `-模板传递` sibling both do — so
+  the store wrote one row and the other variants had none. Measured on a real category:
+  `zh` showed 57 members and `zh-hans` showed 55.
+- A page edited while a variant was not configured has no row for it.
+- A variant added to the configuration later has no rows until a rebuild.
+
+The query now left-joins the extension table twice, once for the reader's variant and
+once for the mixed variant, and orders and filters on
+`COALESCE(cms_reader.cms_sortkey, cms_mixed.cms_sortkey)`. The mixed variant is always
+stored, so the fallback always has a row to fall back to. Members with neither row still
+do not appear, which is correct: they have no key in that mode and are not sortable
+there. Verified over HTTP: 57 members per variant, `dupes=0 missing=0 extra=0`.
+
+`SortKeyStore` also now writes a row for every (mode, variant) even when the key equals
+another variant's, so the fallback is a safety net rather than the normal path.
+
+**The cursor has to filter on the same expression the query orders by.** With the
+fallback, the boundary row's position is defined by the COALESCE, so a cursor comparing
+against a bare `cms_sortkey` locates it somewhere else. Two MediaWiki details bite here:
+`IReadableDatabase::expr()` accepts only a plain field name in its first argument and
+rejects an arbitrary expression as a possible injection, so the condition is assembled as
+quoted SQL with `addQuotes()` and a fixed operator set; and a query joining the extension
+table twice has two `cms_from` columns in scope, so the tiebreaker is qualified as
+`cl_from`.
 
 **Section links must not inherit each other's cursors.** `$query` arrives from the
 request and is restated into each section's links. It carries `cmspagefrom`, which then
