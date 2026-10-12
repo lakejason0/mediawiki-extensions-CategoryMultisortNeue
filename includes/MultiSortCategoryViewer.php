@@ -125,6 +125,10 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	/**
 	 * Whether each section had a cursor in the request, i.e. is not the first page.
 	 *
+	 * Reset at the start of every query, unlike the incremental counters around it: it
+	 * answers a question about *this* request, so a value left over from a previous query
+	 * would put a "previous" control on the first page.
+	 *
 	 * @var array<string,bool>
 	 */
 	private array $hasIncomingCursor = [ 'page' => false, 'subcat' => false, 'file' => false ];
@@ -487,6 +491,7 @@ class MultiSortCategoryViewer extends CategoryViewer {
 		$this->nextPage = [ 'page' => null, 'subcat' => null, 'file' => null ];
 		$this->prevPage = [ 'page' => null, 'subcat' => null, 'file' => null ];
 		$this->flip = [ 'page' => false, 'subcat' => false, 'file' => false ];
+		$this->hasIncomingCursor = [ 'page' => false, 'subcat' => false, 'file' => false ];
 
 		$useExtensionTable = !$this->useCoreOrder && $this->mode->isAvailable();
 		$targetId = $useExtensionTable ? $this->lookupTargetId( $categoryLinksDbr ) : null;
