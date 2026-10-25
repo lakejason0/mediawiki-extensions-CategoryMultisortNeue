@@ -251,13 +251,13 @@ Two more details in the same area:
 | Hook | Used for | Why this hook |
 | --- | --- | --- |
 | `ArticleFromTitle` | Swap in `MultiSortCategoryPage` | `CategoryPage` chooses its viewer class from a protected property, and the viewer runs its query before consulting any hook, so replacing the page class is the only way in without patching core |
-| `SidebarBeforeOutput` | Offer the sort mode portlet | Documented extension point for adding a portlet; runs per page view, unlike the cached `SkinBuildSidebar` |
+| `SidebarBeforeOutput` | Offer the sort mode portlet (only when the subtitle is off) | Documented extension point for adding a portlet; runs per page view, unlike the cached `SkinBuildSidebar` |
 | `LoadExtensionSchemaUpdates` | Create the table | Standard schema registration |
 | `ParserFirstCallInit` | Register the two magic words | Standard parser function registration |
 | `LinksUpdateComplete` | Keep the table current after edits | Runs after `categorylinks` has been rewritten, so the prefixes are final |
 | `ArticleDeleteComplete` | Drop the page's rows | `LinksUpdate` does not run on deletion |
 | `GetPreferences` | Add the preference | Standard |
-| `BeforePageDisplay` | Load the client module on category pages | Standard |
+| `BeforePageDisplay` | Load the client module, and add the subtitle control | Both need the page output after the title is known; `BeforePageDisplay` is the documented point for that |
 
 Everything is declared through `extension.json`; there is no `require_once` loading of
 classes.
@@ -280,13 +280,32 @@ The array key does the work. Core derives the portlet id (`p-categorymultisortne
 the class (`mw-portlet-categorymultisortneue`) and the heading (the message with that
 same key), so no skin needs to know this extension exists.
 
-Measured on the bundled skins: Vector 2022 renders it as a collapsible menu, legacy
-Vector / MonoBook / Timeless as a sidebar box, and **Minerva does not render sidebar
-portlets at all** — its main menu is built by its own director from a fixed set of
-portlets, with no skin-agnostic injection point. That is what
-`$wgCategoryMultisortNeueInlineFallback` is for: an opt-in copy of the same links in
-the page body, built from the same item array so the two cannot drift, and removed by
-the client module whenever the skin did render the portlet.
+Measured on the bundled skins: legacy Vector and MonoBook render it as a sidebar box,
+Timeless as a sidebar box / header dropdown / hamburger depending on width, and
+**Vector 2022 does not put it in the sidebar at all** — `SkinVector22` splices the toolbox
+and everything after it into the page-tools menu, so the portlet lands inside the "工具"
+dropdown, one click away. **Minerva renders no sidebar portlets whatsoever**: its main
+menu is built by its own director from a fixed set of portlets, with no skin-agnostic
+injection point.
+
+That is why the sidebar is not the default channel any more. The region that wins is the
+one **every** skin renders: the subtitle. `OutputPage::addSubtitle()` is a public API, the
+output is plain anchors, the current mode is marked with `aria-current` server-side, and
+it works without JavaScript. It costs about one line of vertical space; on Vector 2022 the
+line is 17px and the rest of the whitespace belongs to the skin (`#contentSub` margin and
+the following heading), which is worth stating because it looks like the extension's
+padding and is not.
+
+Only one channel is rendered at a time (`$wgCategoryMultisortNeueSubtitle`), because two
+identical controls on one page is a defect — the in-body fallback could produce exactly
+that on skins that do render sidebars, and only JavaScript removed it, so readers without
+JavaScript saw two. The portlet remains available for wikis that prefer the skin-native
+placement; the fallback remains for them, and is suppressed whenever the subtitle is on.
+
+The subtitle is also where a category subpage's parent link lives (`‹ Category:Foo`).
+That link is emitted as a block before the subtitle string, so the sort line stacks below
+it rather than colliding: `#contentSub` grows from 22px to 44px on such a page, which was
+measured with `Category` subpages enabled.
 
 See [Gotchas](#gotchas-worth-remembering) for the `tooltip` trap in sidebar items.
 

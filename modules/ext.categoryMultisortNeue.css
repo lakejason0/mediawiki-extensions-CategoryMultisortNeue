@@ -67,3 +67,48 @@
 	text-decoration: none;
 	cursor: default;
 }
+
+/*
+ * The subtitle channel: one line of links under the page title.
+ *
+ * This is deliberately plain text next to the skin's own subtitle content (redirect and
+ * cache notices), so it inherits that region's small print instead of competing with the
+ * article. Colours use the custom properties the bundled skins define, with fallbacks.
+ */
+.cms-subtitle {
+	/*
+	 * Block, not inline: #contentSub is a block whose line-height is the skin body line-height
+	 * (Vector 2022: 14px text on a 22px line). An inline child cannot make that line shorter --
+	 * the block strut still sets the height -- so the line is made a block of its own with a
+	 * tighter line-height, which reclaims about 5px of the vertical band without fighting the
+	 * skin heights/margins. Font is a step smaller for the same reason.
+	 */
+	display: block;
+	font-size: 0.9em;
+	line-height: 1.35;
+}
+
+.cms-subtitle .cms-subtitle-label {
+	color: var( --color-subtle, #54595d );
+	margin-right: 0.15em;
+}
+
+.cms-subtitle a.cms-subtitle-link {
+	color: var( --color-progressive, #36c );
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.cms-subtitle a.cms-subtitle-link:hover {
+	text-decoration: underline;
+}
+
+.cms-subtitle a.cms-subtitle-link-current {
+	font-weight: bold;
+	color: var( --color-base, #202122 );
+}
+
+.cms-subtitle .cms-subtitle-sep {
+	color: var( --color-subtle, #54595d );
+	padding: 0 0.1em;
+}

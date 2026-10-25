@@ -252,6 +252,14 @@ class MultiSortCategoryViewer extends CategoryViewer {
 	private function buildInlineFallback(): string {
 		/** @var CategoryMultisortNeueConfig $config */
 		$config = MediaWikiServices::getInstance()->get( 'CategoryMultisortNeue.Config' );
+
+		// When the subtitle carries the control, this list would be a second copy of it.
+		// The subtitle renders on every skin, including the ones this fallback existed for,
+		// so there is nothing left for it to cover.
+		if ( $config->showSubtitle() ) {
+			return '';
+		}
+
 		if ( !$config->inlineFallback() ) {
 			return '';
 		}

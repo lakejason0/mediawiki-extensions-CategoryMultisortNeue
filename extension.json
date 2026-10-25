@@ -48,6 +48,10 @@
 			"value": true,
 			"description": "Whether the per-user 'preferred sort mode' preference is offered."
 		},
+		"CategoryMultisortNeueSubtitle": {
+			"value": true,
+			"description": "Whether to offer the sort mode control as one line of links under the page title. That region is rendered by every skin, including Minerva and skins that fold their sidebar away, and it is the only channel when enabled: the sidebar portlet and the in-body fallback are then suppressed so no reader sees the control twice. Set to false to use the sidebar portlet instead."
+		},
 		"CategoryMultisortNeueInlineFallback": {
 			"value": false,
 			"description": "Whether to also render the sort mode control in the page body, as a list of links, for skins that do not render sidebar portlets (Minerva). When JavaScript runs, the fallback is removed if the skin already rendered the portlet, so no reader sees the control twice."
@@ -69,7 +73,10 @@
 		"LinksUpdateComplete": "MediaWiki\\Extension\\CategoryMultisortNeue\\LinksUpdateHooks::onLinksUpdateComplete",
 		"GetPreferences": "MediaWiki\\Extension\\CategoryMultisortNeue\\PreferenceHooks::onGetPreferences",
 		"SidebarBeforeOutput": "MediaWiki\\Extension\\CategoryMultisortNeue\\SortModePortlet::onSidebarBeforeOutput",
-		"BeforePageDisplay": "MediaWiki\\Extension\\CategoryMultisortNeue\\PreferenceHooks::onBeforePageDisplay"
+		"BeforePageDisplay": [
+			"MediaWiki\\Extension\\CategoryMultisortNeue\\PreferenceHooks::onBeforePageDisplay",
+			"MediaWiki\\Extension\\CategoryMultisortNeue\\SortModeSubtitle::onBeforePageDisplay"
+		]
 	},
 	"HookHandlers": {
 		"SchemaChanges": {

@@ -82,6 +82,15 @@ class SortModePortlet {
 			return;
 		}
 
+		// One control, not two. When the subtitle carries it (the default), a portlet would
+		// be a second copy of the same four links on every skin that shows sidebars --
+		// MonoBook, Timeless and legacy Vector all do -- which is confusing and was the same
+		// duplication the old in-body fallback had. Set
+		// $wgCategoryMultisortNeueSubtitle = false to get the portlet instead.
+		if ( $config->showSubtitle() ) {
+			return;
+		}
+
 		// A category can ask core to list it by when members were added (MediaWiki 1.47's
 		// {{CATEGORYSORT:TIMESTAMP}} / {{CATEGORYSORT:RTIMESTAMP}}). That ordering is not a
 		// collation, so there is no mode to offer: the two answers would contradict each
@@ -111,9 +120,11 @@ class SortModePortlet {
 	/**
 	 * The modes worth offering, or null when a control should not be shown at all.
 	 *
+	 * Shared with SortModeSubtitle, so the two channels agree on when the control exists.
+	 *
 	 * @return array<string,SortMode>|null
 	 */
-	private static function getUsableModes(): ?array {
+	public static function getUsableModes(): ?array {
 		/** @var SortModeRegistry $registry */
 		$registry = MediaWikiServices::getInstance()->get( 'CategoryMultisortNeue.SortModeRegistry' );
 		$modes = $registry->getAvailableModes();

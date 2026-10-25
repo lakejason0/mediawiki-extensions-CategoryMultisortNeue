@@ -7,6 +7,7 @@
 	},
 	"categorymultisortneue-desc": "{{desc|name=CategoryMultisortNeue|url=https://www.mediawiki.org/wiki/Extension:CategoryMultisortNeue}}",
 	"categorymultisortneue": "Label of the sidebar portlet that offers the sort modes. The message key is the portlet name, so the skin looks it up automatically and derives the portlet id (p-categorymultisortneue) and class (mw-portlet-categorymultisortneue) from it. Plural: this is the heading above a list of ways to sort the category.",
+	"categorymultisortneue-subtitle-label": "Label before the sort mode links shown under a category page title.",
 	"categorymultisortneue-link-aria": "Accessible label of one sort mode link in the portlet, so a screen reader announces the action rather than just the mode name. Parameters:\n* $1 - the localised mode name",
 	"categorymultisortneue-mode-default": "Dropdown entry for the sort mode whose collation is left empty in $wgCategoryMultisortNeueModes, i.e. the wiki's own $wgCategoryCollation.",
 	"categorymultisortneue-mode-default-desc": "Tooltip for the {{msg-mw|categorymultisortneue-mode-default}} entry.",

@@ -6,6 +6,7 @@
 	},
 	"categorymultisortneue-desc": "Lets readers view one category page under several different collations, for example pinyin, zhuyin and stroke for Chinese, while the wiki keeps a single <code>$wgCategoryCollation</code>.",
 	"categorymultisortneue": "Sort category by",
+	"categorymultisortneue-subtitle-label": "Sort order:",
 	"categorymultisortneue-link-aria": "Sort by $1",
 	"categorymultisortneue-mode-default": "Wiki default",
 	"categorymultisortneue-mode-default-desc": "Whatever $wgCategoryCollation the wiki is configured with.",

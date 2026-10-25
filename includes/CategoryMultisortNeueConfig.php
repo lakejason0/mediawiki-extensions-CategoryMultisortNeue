@@ -113,6 +113,16 @@ class CategoryMultisortNeueConfig {
 	}
 
 	/**
+	 * Whether the control is offered as one line under the page title.
+	 *
+	 * When true (the default) it is the only channel: the sidebar portlet and the in-body
+	 * fallback are suppressed, so no skin shows the choice twice. See SortModeSubtitle.
+	 */
+	public function showSubtitle(): bool {
+		return (bool)$this->config->get( 'CategoryMultisortNeueSubtitle' );
+	}
+
+	/**
 	 * Whether sort keys are stored per language variant, so that a reader's chosen
 	 * variant produces a different category order.
 	 */

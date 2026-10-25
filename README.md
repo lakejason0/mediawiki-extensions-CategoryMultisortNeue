@@ -13,7 +13,7 @@ a category page can only ever have one physical order. That is a real problem fo
 
 This extension keeps `categorylinks` untouched and stores the extra sort keys in a
 side table, then offers the available orders to the skin as an ordinary
-[portlet](#the-sort-mode-portlet) that readers can pick from — or set once in their
+[control](#where-the-sort-control-appears) that readers can pick from — or set once in their
 preferences.
 
 |  |  |
@@ -41,13 +41,14 @@ preferences.
   - [`$wgCategoryMultisortNeueShowSelector`](#wgcategorymultisortneueshowselector)
   - [`$wgCategoryMultisortNeuePreference`](#wgcategorymultisortneuepreference)
   - [`$wgCategoryMultisortNeueWriteOnEdit`](#wgcategorymultisortneuewriteonedit)
+  - [`$wgCategoryMultisortNeueSubtitle`](#wgcategorymultisortneuesubtitle)
   - [`$wgCategoryMultisortNeueInlineFallback`](#wgcategorymultisortneueinlinefallback)
   - [`$wgCategoryMultisortNeuePerVariantSortKeys`](#wgcategorymultisortneuepervariantsortkeys)
   - [`$wgCategoryMultisortNeueVariants`](#wgcategorymultisortneuevariants)
 - [Choosing collations](#choosing-collations)
 - [Wikis with writing-system variants](#wikis-with-writing-system-variants)
 - [Magic words](#magic-words)
-- [The sort mode portlet](#the-sort-mode-portlet)
+- [Where the sort control appears](#where-the-sort-control-appears)
 - [User preference](#user-preference)
 - [Maintenance scripts](#maintenance-scripts)
 - [Database schema](#database-schema)
@@ -196,7 +197,7 @@ preference. If it does not name an available mode, the first available mode in
 | **Type** | `bool` |
 | **Default** | `true` |
 
-Whether to offer the [sort mode portlet](#the-sort-mode-portlet). Setting this to
+Whether to offer the [sort control](#where-the-sort-control-appears). Setting this to
 `false` leaves the reader with the URL parameter and the preference only.
 
 ### `$wgCategoryMultisortNeuePreference`
@@ -235,6 +236,37 @@ Whether edits maintain the extension table incrementally through the
 Either way, page deletion still removes the page's rows
 (`ArticleDeleteComplete`).
 
+### `$wgCategoryMultisortNeueSubtitle`
+
+| | |
+| --- | --- |
+| **Type** | `bool` |
+| **Default** | `true` |
+
+Whether the control is offered as **one line under the page title**:
+
+> Sort order: Wiki default · Pinyin · Zhuyin · Stroke
+
+That region (`#contentSub`, `#mw-content-subtitle` on Minerva) is the only one every
+bundled skin renders, it works without JavaScript, and the current mode is marked with
+`aria-current` on the server. It is where "redirected from …" notices already live, which
+is the same kind of statement about the page being viewed.
+
+When this is **on, it is the only control**: the sidebar portlet and the in-body fallback
+are both suppressed, so no skin ever shows the choice twice. Set it to `false` to get the
+sidebar portlet instead.
+
+Two layout notes, measured rather than guessed:
+
+- On Vector 2022 the line is 17px tall. The space around it is not the extension's:
+  Vector gives `#contentSub` an 8px top margin and a 22px line box for 14px text, and the
+  first category heading brings ~16px of its own spacing. Making the line a block with a
+  tighter `line-height` (`0.9em`/`1.35`) is the most that can be reclaimed.
+- A category on a wiki with **subpages enabled for the Category namespace** already uses
+  this region for its parent-page link (`‹ Category:Foo`). The parent link is a block, so
+  the sort line follows it on a second line; tested on Vector 2022, MonoBook and Minerva,
+  no overlap and no truncation.
+
 ### `$wgCategoryMultisortNeueInlineFallback`
 
 | | |
@@ -242,24 +274,24 @@ Either way, page deletion still removes the page's rows
 | **Type** | `bool` |
 | **Default** | `false` |
 
-Whether to **also** render the sort choices in the page body, as a small list of
-links above the member list.
+Whether to **also** render the sort choices in the page body, as a small list of links
+above the member list.
 
-The portlet is the intended control and is what skins style and collapse. This
-fallback exists because **Minerva does not render sidebar portlets at all** — its
-main menu is assembled by Minerva's own builders from a fixed set of portlets, so
-there is no skin-agnostic way to inject into it. On a wiki whose readers use
-Minerva, turn this on:
+This existed because **Minerva does not render sidebar portlets at all** — its main menu is
+assembled by Minerva's own builders from a fixed set of portlets, so there is no
+skin-agnostic way to inject into it. The
+[subtitle](#wgcategorymultisortneuesubtitle) covers that case now, on every skin, so the
+fallback is only useful on a wiki that has switched the subtitle off:
 
 ```php
+$wgCategoryMultisortNeueSubtitle = false;   // portlet instead
 $wgCategoryMultisortNeueInlineFallback = true;
 ```
 
-The fallback is built from the same items as the portlet, so the two cannot drift
-apart, and the JavaScript module **removes the fallback whenever the skin did render
-the portlet** — no reader ever sees the choice twice. Without JavaScript both copies
-are present on skins that render portlets; that is the price of covering Minerva, and
-it is why this is opt-in.
+It is ignored while `$wgCategoryMultisortNeueSubtitle` is `true` — rendering both would put
+two copies of the control on the same page. Even in portlet mode the JavaScript module
+removes the fallback whenever the skin rendered the portlet, so a reader with JavaScript
+sees one control; without JavaScript both are present on skins that render portlets.
 
 ### `$wgCategoryMultisortNeuePerVariantSortKeys`
 
@@ -460,11 +492,43 @@ Notes:
   row. The `default` mode renders through core's `cl_sortkey`, so the page itself will
   not look different — use `{{DEFAULTSORT:}}` for that.
 
-## The sort mode portlet
+## Where the sort control appears
 
-The control is a **skin portlet**, not a widget in the article body. The extension
-only supplies data through the `SidebarBeforeOutput` hook; the skin decides what it
-looks like and where it goes.
+There is **one control at a time**, in one of two presentations:
+
+| `$wgCategoryMultisortNeueSubtitle` | Control | Skins |
+| --- | --- | --- |
+| `true` (default) | one line under the page title | all five bundled skins, including Minerva |
+| `false` | sidebar portlet | all but Minerva; one click deep on Vector 2022 |
+
+Only one is shown because two identical controls on one page is confusing. An earlier
+version could show three copies at once — portlet, in-body fallback, and (later) the
+subtitle — and the in-body duplicate was only removed by JavaScript, so readers without
+JavaScript saw it twice.
+
+### Subtitle (default)
+
+`OutputPage::addSubtitle()` from `BeforePageDisplay`. One line, plain anchors, no
+JavaScript, `aria-current` set on the server:
+
+```html
+<span class="cms-subtitle">
+  <span class="cms-subtitle-label">Sort order:</span>
+  <a class="cms-subtitle-link" href="…?cmsmode=default">Wiki default</a>
+  <span class="cms-subtitle-sep">·</span>
+  <a class="cms-subtitle-link cms-subtitle-link-current" href="…?cmsmode=stroke"
+     aria-current="true">Stroke</a>
+</span>
+```
+
+It appears on the reading view only — not on history, diff or edit pages — and not on
+categories whose order core owns (see [Compatibility](#compatibility)).
+
+### Sidebar portlet (opt-in)
+
+With `$wgCategoryMultisortNeueSubtitle = false` the control is a **skin portlet**. The
+extension only supplies data through the `SidebarBeforeOutput` hook; the skin decides what
+it looks like and where it goes.
 
 Expressed in the standard sidebar item shape, one link per mode:
 
@@ -506,21 +570,20 @@ Rendered by Vector 2022:
 </div>
 ```
 
-Measured behaviour on the bundled skins:
+Measured behaviour on the bundled skins (this was the reason the subtitle became the
+default):
 
 | Skin | Portlet rendered? | Where |
 | --- | --- | --- |
-| Vector 2022 | yes | collapsible menu in the main menu |
-| Vector (legacy) | yes | sidebar box |
-| MonoBook | yes | sidebar box |
-| Timeless | yes | sidebar box |
-| Minerva | **no** | use [`$wgCategoryMultisortNeueInlineFallback`](#wgcategorymultisortneueinlinefallback) |
+| Vector 2022 | yes | **the "工具" page-tools dropdown**, not the main menu: `SkinVector22::extractPageToolsFromSidebar()` splices the toolbox and everything after it into page tools, and `SidebarBeforeOutput` appends after the toolbox |
+| Vector (legacy) | yes | sidebar box, always visible |
+| MonoBook | yes | sidebar box, visible from 551px |
+| Timeless | yes | left column ≥1100px, header dropdown 851–1099px, hamburger ≤850px |
+| Minerva | **no** | `MainMenuDirector` only reads a fixed set of portlets; use the subtitle |
 
 The portlet only appears on category pages, and only when at least two modes are
-available and `$wgCategoryMultisortNeueShowSelector` is on. The links are plain
-anchors, so they work without JavaScript; the small client module only mirrors the
-current mode to `aria-current` and removes the inline fallback when the portlet is
-present.
+available and `$wgCategoryMultisortNeueShowSelector` is on. The small client module only
+mirrors the current mode to `aria-current`.
 
 ## User preference
 

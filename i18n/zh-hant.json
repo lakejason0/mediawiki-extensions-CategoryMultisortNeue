@@ -6,6 +6,7 @@
 	},
 	"categorymultisortneue-desc": "讓讀者用多種排序方式檢視同一個分類頁面（例如中文的拼音、注音、筆畫），而站點仍然只設定一個 <code>$wgCategoryCollation</code>。",
 	"categorymultisortneue": "分類排序方式",
+	"categorymultisortneue-subtitle-label": "排序方式：",
 	"categorymultisortneue-link-aria": "按$1排序",
 	"categorymultisortneue-mode-default": "站點預設",
 	"categorymultisortneue-mode-default-desc": "站點所設定的 $wgCategoryCollation。",
