@@ -307,14 +307,23 @@ That link is emitted as a block before the subtitle string, so the sort line sta
 it rather than colliding: `#contentSub` grows from 22px to 44px on such a page, which was
 measured with `Category` subpages enabled.
 
-Its punctuation is not written in code. The colon after the label comes from core's
-`colon-separator` and the separator between links from `comma-separator` — both
-translatable, both marked `{{optional}}`/`{{Format|plain}}` on translatewiki, and both
-carrying the spacing rules of their language (Chinese puts a zero-width space after its
-fullwidth comma, French wants a narrow no-break space after the colon). Hard-coding `·`
-and `：` is right for some languages and wrong for others — and it silently drops the
-spacing rules — so reusing the two core messages costs nothing and avoids adding a third
-message that every translator would have to deal with.
+Its punctuation is not written in code, but the two pieces are handled differently on
+purpose:
+
+- **the colon** after the label is core's `colon-separator`. Nothing about it is specific to
+  this control: a colon is a colon, and the message already carries the per-language spacing
+  (a narrow no-break space in French, a zero-width space after the Chinese fullwidth form).
+- **the separator between links** is this extension's own
+  `categorymultisortneue-subtitle-separator`, defaulting to a middle dot. It is *not*
+  `comma-separator` because that message is site-wide: overriding it to make this one line
+  look different would change every list on the wiki. A dedicated message keeps that
+  decision local, and it carries its own spacing, so a language can drop the spaces or use
+  its own list separator instead. Marked `{{optional}}`/`{{Format|plain}}` like the core
+  separators, so leaving it untranslated is safe — the middle dot is a reasonable default
+  for most languages.
+
+Hard-coding either character would have been right for some languages and wrong for
+others, and would have dropped the spacing rules that the messages carry.
 
 See [Gotchas](#gotchas-worth-remembering) for the `tooltip` trap in sidebar items.
 

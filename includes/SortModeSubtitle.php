@@ -125,16 +125,17 @@ class SortModeSubtitle {
 			$links[] = Html::element( 'a', $attribs, $item['text'] );
 		}
 
-		// Separator and colon come from core's translatable messages rather than being
-		// written here: punctuation differs by language, and these two are exactly the
-		// messages for it (both marked {{optional}} and {{Format|plain}} on translatewiki).
-		// They also carry the spacing rules -- Chinese has a zero-width space after its
-		// fullwidth comma, French wants a narrow no-break space after the colon -- so
-		// hard-coding '·' and '：' would be wrong in more than one language.
+		// Punctuation is not written in code. The colon after the label comes from core's
+		// colon-separator: the colon and the space around it differ by language (French wants
+		// a narrow no-break space, Chinese adds a zero-width space after its fullwidth form).
+		// The separator *between* modes is this extension's own message rather than core's
+		// comma-separator, so a wiki can change this control's separator without changing
+		// every list on the wiki. The default is a middle dot, which reads naturally in most
+		// languages; the message carries the spacing, so a language can drop it or change it.
 		$separator = Html::element(
 			'span',
 			[ 'class' => 'cms-subtitle-sep' ],
-			$context->msg( 'comma-separator' )->text()
+			$context->msg( 'categorymultisortneue-subtitle-separator' )->text()
 		);
 		$label = Html::element(
 			'span',

@@ -515,18 +515,22 @@ JavaScript, `aria-current` set on the server:
 <span class="cms-subtitle">
   <span class="cms-subtitle-label">Sort order</span>: 
   <a class="cms-subtitle-link" href="…?cmsmode=default">Wiki default</a>
-  <span class="cms-subtitle-sep">, </span>
+  <span class="cms-subtitle-sep"> · </span>
   <a class="cms-subtitle-link cms-subtitle-link-current" href="…?cmsmode=stroke"
      aria-current="true">Stroke</a>
 </span>
 ```
 
-The label, the colon and the separator are **not written in code**. The colon is core's
-`colon-separator` message and the separator between links is `comma-separator`, both
-translatable and both carrying their language's spacing rules -- Chinese adds a zero-width
-space after its fullwidth comma, French wants a narrow no-break space after the colon. That
-is why a wiki using this extension gets `排序方式：站点默认、拼音、注音、笔画` rather than a
-transliterated `排序方式：站点默认 · 拼音`.
+The label, the colon and the separator are **not written in code**:
+
+- the colon after the label is core's `colon-separator` message, because the character and
+the space around it differ by language (French wants a narrow no-break space, Chinese adds a
+zero-width space after its fullwidth form);
+- the separator between links is this extension's own
+`categorymultisortneue-subtitle-separator`, defaulting to a middle dot. It is deliberately
+per-control rather than the site-wide `comma-separator`, so a wiki can change how this line
+looks without changing every list on the wiki, and it carries its own spacing so a language
+can drop the spaces or use its own list separator.
 
 It appears on the reading view only — not on history, diff or edit pages — and not on
 categories whose order core owns (see [Compatibility](#compatibility)).

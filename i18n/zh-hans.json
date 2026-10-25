@@ -7,6 +7,7 @@
 	"categorymultisortneue-desc": "让读者用多种排序方式查看同一个分类页面（例如中文的拼音、注音、笔画），而站点仍然只设置一个 <code>$wgCategoryCollation</code>。",
 	"categorymultisortneue": "分类排序方式",
 	"categorymultisortneue-subtitle-label": "排序方式",
+	"categorymultisortneue-subtitle-separator": "&#32;·&#32;",
 	"categorymultisortneue-link-aria": "按$1排序",
 	"categorymultisortneue-mode-default": "站点默认",
 	"categorymultisortneue-mode-default-desc": "站点所配置的 $wgCategoryCollation。",
