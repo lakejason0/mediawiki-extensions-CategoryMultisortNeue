@@ -89,8 +89,8 @@
 }
 
 .cms-subtitle .cms-subtitle-label {
+	/* Spacing after the colon comes from the colon-separator message, not from CSS. */
 	color: var( --color-subtle, #54595d );
-	margin-right: 0.15em;
 }
 
 .cms-subtitle a.cms-subtitle-link {
@@ -109,6 +109,6 @@
 }
 
 .cms-subtitle .cms-subtitle-sep {
+	/* The separator text, including its spacing, comes from the comma-separator message. */
 	color: var( --color-subtle, #54595d );
-	padding: 0 0.1em;
 }

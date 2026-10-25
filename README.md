@@ -245,7 +245,7 @@ Either way, page deletion still removes the page's rows
 
 Whether the control is offered as **one line under the page title**:
 
-> Sort order: Wiki default · Pinyin · Zhuyin · Stroke
+> Sort order: Wiki default, Pinyin, Zhuyin, Stroke
 
 That region (`#contentSub`, `#mw-content-subtitle` on Minerva) is the only one every
 bundled skin renders, it works without JavaScript, and the current mode is marked with
@@ -513,13 +513,20 @@ JavaScript, `aria-current` set on the server:
 
 ```html
 <span class="cms-subtitle">
-  <span class="cms-subtitle-label">Sort order:</span>
+  <span class="cms-subtitle-label">Sort order</span>: 
   <a class="cms-subtitle-link" href="…?cmsmode=default">Wiki default</a>
-  <span class="cms-subtitle-sep">·</span>
+  <span class="cms-subtitle-sep">, </span>
   <a class="cms-subtitle-link cms-subtitle-link-current" href="…?cmsmode=stroke"
      aria-current="true">Stroke</a>
 </span>
 ```
+
+The label, the colon and the separator are **not written in code**. The colon is core's
+`colon-separator` message and the separator between links is `comma-separator`, both
+translatable and both carrying their language's spacing rules -- Chinese adds a zero-width
+space after its fullwidth comma, French wants a narrow no-break space after the colon. That
+is why a wiki using this extension gets `排序方式：站点默认、拼音、注音、笔画` rather than a
+transliterated `排序方式：站点默认 · 拼音`.
 
 It appears on the reading view only — not on history, diff or edit pages — and not on
 categories whose order core owns (see [Compatibility](#compatibility)).
@@ -707,7 +714,7 @@ likely to want to translate or override:
 
 | Message | Purpose |
 | --- | --- |
-| `categorymultisortneue` | Heading of the portlet. **The key is the portlet name**, so it cannot be renamed. |
+| `categorymultisortneue` | Heading of the sidebar portlet (only shown in portlet mode). The message key is also the portlet name, so it cannot be renamed. |
 | `categorymultisortneue-mode-<id>` | Display name of a mode. Missing → the raw id is shown. || `categorymultisortneue-mode-<id>-desc` | Optional tooltip for a mode. |
 | `categorymultisortneue-link-aria` | `aria-label` of a mode link; `$1` is the mode name. |
 | `categorymultisortneue-pref` | Preference label. |
@@ -724,7 +731,7 @@ To name a mode, either translate `categorymultisortneue-mode-<id>` on-wiki
 
 ## Troubleshooting
 
-**A mode does not show up in the portlet.**
+**A mode does not show up in the control.**
 Its collation failed validation. Check the `CategoryMultisortNeue` log channel — the
 warning names the mode and the reason. The usual cause is an ICU locale group that
 core cannot produce first letters for, such as `uca-zh` or
@@ -734,14 +741,16 @@ core cannot produce first letters for, such as `uca-zh` or
 The extension table has not been populated for it. Run
 `rebuildSortKeys`, then `checkSortKeys`.
 
-**Category pages show an empty portlet, or none at all.**
-The portlet needs at least two available modes. Check
+**Category pages show no control at all.**
+The control needs at least two available modes. Check
 `$wgCategoryMultisortNeueShowSelector` and that
-`$wgCategoryMultisortNeueModes` really has two entries with usable collations.
+`$wgCategoryMultisortNeueModes` really has two entries with usable collations. If you
+expected the sidebar portlet, note that the subtitle is the default: set
+`$wgCategoryMultisortNeueSubtitle = false`.
 
 **Readers on Minerva have no control.**
-Expected: Minerva renders no sidebar portlets. Set
-`$wgCategoryMultisortNeueInlineFallback = true`.
+Minerva renders no sidebar portlets. The subtitle covers it, so this only happens if you
+turned the subtitle off; then set `$wgCategoryMultisortNeueInlineFallback = true`.
 
 **The portlet heading shows the raw key.**
 `categorymultisortneue` is not translated on your wiki and no fallback was found.

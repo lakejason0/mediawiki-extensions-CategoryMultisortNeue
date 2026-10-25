@@ -125,17 +125,29 @@ class SortModeSubtitle {
 			$links[] = Html::element( 'a', $attribs, $item['text'] );
 		}
 
-		$separator = Html::element( 'span', [ 'class' => 'cms-subtitle-sep' ], '·' );
+		// Separator and colon come from core's translatable messages rather than being
+		// written here: punctuation differs by language, and these two are exactly the
+		// messages for it (both marked {{optional}} and {{Format|plain}} on translatewiki).
+		// They also carry the spacing rules -- Chinese has a zero-width space after its
+		// fullwidth comma, French wants a narrow no-break space after the colon -- so
+		// hard-coding '·' and '：' would be wrong in more than one language.
+		$separator = Html::element(
+			'span',
+			[ 'class' => 'cms-subtitle-sep' ],
+			$context->msg( 'comma-separator' )->text()
+		);
 		$label = Html::element(
 			'span',
 			[ 'class' => 'cms-subtitle-label' ],
 			$context->msg( 'categorymultisortneue-subtitle-label' )->text()
-		);
+		) . $context->msg( 'colon-separator' )->escaped();
 
+		// The separator itself carries the spacing, so only insert it between links: the
+		// first mode follows the label's colon directly.
 		return Html::rawElement(
 			'span',
 			[ 'class' => self::CONTAINER_CLASS ],
-			$label . ' ' . implode( " $separator ", $links )
+			$label . implode( $separator, $links )
 		);
 	}
 }
