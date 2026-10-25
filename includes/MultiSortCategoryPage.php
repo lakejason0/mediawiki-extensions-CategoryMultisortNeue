@@ -8,6 +8,7 @@
 
 namespace MediaWiki\Extension\CategoryMultisortNeue;
 
+use MediaWiki\Category\CategoryViewer;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Page\CategoryPage;
 use MediaWiki\Title\Title;
@@ -67,6 +68,25 @@ class MultiSortCategoryPage extends CategoryPage {
 
 		unset( $reqArray["from"] );
 		unset( $reqArray["to"] );
+
+		// Since MediaWiki 1.47 a category can ask to be listed by when its members were
+		// added, rather than by any collation. That is a different column, index and
+		// grouping, and it is core's own code path; this extension restates the query, so
+		// its copy would otherwise silently ignore the request. Render those categories
+		// with core's viewer instead of trying to reproduce the ordering here.
+		if ( CoreCategoryOrder::isTimestampOrdering( $this->getPage(), $request ) ) {
+			$viewer = new CategoryViewer(
+				$this->getPage(),
+				$context,
+				$from,
+				$until,
+				$reqArray
+			);
+			$out = $context->getOutput();
+			$out->addHTML( $viewer->getHTML() );
+			$this->addHelpLink( 'Help:Categories' );
+			return;
+		}
 
 		$viewer = new $this->mCategoryViewerClass(
 			$this->getPage(),

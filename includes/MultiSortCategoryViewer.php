@@ -340,6 +340,16 @@ class MultiSortCategoryViewer extends CategoryViewer {
 			->newFromPageReference( $page );
 		// @phan-suppress-next-line PhanTypeMismatchArgument Type mismatch on pass-by-ref args
 		$this->getHookRunner()->onCategoryViewer__generateLink( $type, $legacyTitle, $html, $link );
+		// MediaWiki 1.47 replaced that hook with CategoryViewerGenerateLink, which passes
+		// the page and context instead of a legacy Title. Core fires both during the
+		// transition, so this does too: a consumer of either hook sees the members listed
+		// by this extension, which is what it would see on a category rendered by core.
+		$hookRunner = $this->getHookRunner();
+		if ( method_exists( $hookRunner, 'onCategoryViewerGenerateLink' ) ) {
+			$hookRunner->onCategoryViewerGenerateLink(
+				$this->getContext(), $type, $page, $html, $link
+			);
+		}
 		if ( $link === null ) {
 			$linkRenderer = MediaWikiServices::getInstance()->getLinkRenderer();
 			if ( $html !== null ) {

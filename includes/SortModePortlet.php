@@ -82,6 +82,15 @@ class SortModePortlet {
 			return;
 		}
 
+		// A category can ask core to list it by when members were added (MediaWiki 1.47's
+		// {{CATEGORYSORT:TIMESTAMP}} / {{CATEGORYSORT:RTIMESTAMP}}). That ordering is not a
+		// collation, so there is no mode to offer: the two answers would contradict each
+		// other. Checked after the cheap configuration test, because resolving it costs a
+		// page-properties lookup. See CoreCategoryOrder.
+		if ( CoreCategoryOrder::isTimestampOrdering( $title, $skin->getRequest() ) ) {
+			return;
+		}
+
 		$modes = self::getUsableModes();
 		if ( $modes === null ) {
 			return;

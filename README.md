@@ -719,7 +719,7 @@ that `$wgCategoryMultisortNeueModes` ids match `[A-Za-z0-9_-]{1,32}` and report 
 
 ## Compatibility
 
-Developed and verified against **MediaWiki 1.46.0** only. The extension states
+Developed and verified against **MediaWiki 1.46.0** and **1.47.0**. The extension states
 `>= 1.46.0` in `extension.json` because
 [`MultiSortCategoryViewer`](includes/MultiSortCategoryViewer.php) restates several
 parts of core's `CategoryViewer` — the member query, the three section builders, the
@@ -727,6 +727,34 @@ paging links and the grouping letters. Those are deliberately marked `private` i
 core and are not a stable interface, so a different MediaWiki release may need
 adjustments even though nothing here patches core. Everything else (the table, the
 hooks, the magic words, the portlet) uses public APIs.
+
+### MediaWiki 1.47 and later: `{{CATEGORYSORT:}}`
+
+1.47 added a second way for a category page to choose its order:
+
+```wikitext
+{{CATEGORYSORT:TIMESTAMP}}    <!-- oldest first -->
+{{CATEGORYSORT:RTIMESTAMP}}   <!-- most recently added first -->
+```
+
+That orders members by `cl_timestamp` — when they were added to the category — and groups
+them by date instead of by a collation letter. It is **not** a sort mode: "by when it was
+added" and "by pinyin" are answers to the same question, so the two cannot be combined.
+The extension therefore **steps aside** on such a category:
+
+- the listing is rendered by core's own viewer, so the timestamp ordering, its grouping
+  and its paging are exactly core's;
+- the sort mode control is **not shown**, because there is no order to switch;
+- a reader who wants a collation ordering anyway can pass core's own override,
+  `?cldsort=sortkey` (any value other than `timestamp`), and the modes come back.
+
+Nothing has to be configured for this. On MediaWiki 1.46 the feature does not exist and
+none of it applies.
+
+The extension also follows 1.47's replacement of the
+`CategoryViewer__generateLink` hook with `CategoryViewerGenerateLink`, so gadgets and
+extensions listening for either hook see members listed here as they would on a category
+rendered by core.
 
 MediaWiki itself must have the `intl` extension and ICU data that includes the
 collations you configure.

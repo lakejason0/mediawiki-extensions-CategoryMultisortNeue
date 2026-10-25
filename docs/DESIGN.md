@@ -113,6 +113,57 @@ This was verified in-process by rendering the same category through core's
 region byte for byte; the only difference is the portlet, which lives outside the
 generated member list.
 
+### When core owns the ordering instead
+
+"Don't disturb core" also has to survive core *growing new orderings*. MediaWiki 1.47
+added one: `{{CATEGORYSORT:TIMESTAMP}}` and `{{CATEGORYSORT:RTIMESTAMP}}` on a category
+page store the `categorysort` page property, and `CategoryViewer` then lists members by
+`cl_timestamp` — when they were added — grouping them by the day rather than by a
+collation letter. `cldsort` and `cldorder` override it per request. (Gerrit change
+1340051; the column and its index already existed, so there was no schema change.)
+
+The extension could not have picked this up by accident, and the reason is worth stating
+plainly: **`doCategoryQuery()` is restated, so it is a copy, and a copy cannot inherit a
+later addition.** 1.46's copy knows nothing about `cl_timestamp`, so on 1.47 the extension
+would silently ignore the magic word — core's documented feature, quietly not working on
+any wiki with this extension installed. That is exactly the regression the "do not touch
+core" rule is meant to prevent, even though no core file is edited.
+
+So rather than restating the timestamp logic too (and tracking it forever), the extension
+detects it and renders those categories with **core's own viewer class**:
+
+```php
+if ( CoreCategoryOrder::isTimestampOrdering( $this->getPage(), $request ) ) {
+    $viewer = new CategoryViewer( $this->getPage(), $context, $from, $until, $reqArray );
+    ...
+}
+```
+
+Three consequences, all deliberate:
+
+- **The query, grouping and paging are core's**, byte for byte, including `cldorder`
+  reversing and its flipped from/until comparisons. Nothing is reimplemented.
+- **The mode control is hidden.** "By when it was added" and "by pinyin" answer the same
+  question, so one of them has to win and it is the page author's choice to make. A reader
+  who disagrees can use core's own override, `cldsort=<anything but timestamp>`.
+- **Detection duplicates core's resolution** — page property, then the request parameter —
+  because the choice of viewer class has to be made before a viewer exists to ask. It is
+  about ten lines in one place, `CoreCategoryOrder`, and it is feature-detected
+  (`property_exists( CategoryViewer::class, 'sortByTimestamp' )`) so 1.46 takes none of
+  these paths and pays no extra query.
+
+The same release replaced the `CategoryViewer__generateLink` hook with
+`CategoryViewerGenerateLink`. That one is only a hook call in the restated link builder,
+so it is mirrored rather than avoided: fire the old hook always, and the new one when the
+hook runner has it, which is what core itself does during the transition.
+
+The general lesson, for the next core addition in this area: a restated `private` method
+is a **fork**, and every future change to it has to be noticed by hand. The restatement is
+still the only way in — `doCategoryQuery()` runs before any hook fires — so the mitigation
+is to keep the restated surface as small as possible and to treat "what did this method
+learn since the version we copied?" as a release task. Recorded in
+[Gotchas](#gotchas-worth-remembering).
+
 ## Query and paging strategy
 
 Two things needed rethinking.
@@ -616,3 +667,16 @@ Collected here because each one cost real debugging time.
    `checkSortKeys` reports those separately now, and `deleteSortKeys` removes them.
    Note the asymmetry when reading its output: `mismatch` means the computation is
    wrong, `stale` means the row is obsolete.
+
+10. **A restated `private` core method is a fork, and forks do not inherit fixes or
+    features.** `CategoryViewer::doCategoryQuery()` has no hook before it runs, so
+    restating it is the only way to change the member query — but the copy freezes what
+    the method knew on the day it was copied. MediaWiki 1.47's `{{CATEGORYSORT:}}`
+    (ordering by `cl_timestamp`) landed entirely inside that method, so the copy silently
+    dropped a core feature until it was noticed and the extension was taught to step
+    aside. Treat "compare the restated methods with the new core release" as part of
+    every version bump, and prefer *delegating to core* over *reimplementing* wherever a
+    choice is possible: `CoreCategoryOrder` exists because handing the whole page back to
+    core is cheaper to maintain than a second copy of the timestamp logic. The same
+    reasoning applies to hook renames in restated code (`CategoryViewer__generateLink` →
+    `CategoryViewerGenerateLink` in the same release).
